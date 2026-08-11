@@ -23,6 +23,7 @@ jobs:
       KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      EXPECTED_KEYSTORE_SHA256: 2c190e6d58bb4d43678100cf14ca2dd51c08202e7b30b869e370ef075020b804
       EXPECTED_RELEASE_CERT_SHA256: 8f6a384f612aa0d480dce388737dcf7441fc4619581b20bdb226e52ca4316e0d
     steps:
       - name: Checkout
@@ -52,14 +53,46 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${KEYSTORE_B64:-}" ]; then
-            printf '%s' "$KEYSTORE_B64" | base64 --decode > android/app/netsource-sentinel-release.jks
+            KEYSTORE_PATH=android/app/netsource-sentinel-release.jks
+            printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE_PATH"
+
+            ACTUAL_KEYSTORE_SHA256=$(sha256sum "$KEYSTORE_PATH" | awk '{print tolower($1)}')
+            if [ "$ACTUAL_KEYSTORE_SHA256" != "$EXPECTED_KEYSTORE_SHA256" ]; then
+              echo "Decoded keystore does not match the permanent Netsource Sentinel v3 keystore." >&2
+              echo "Expected keystore SHA-256: $EXPECTED_KEYSTORE_SHA256" >&2
+              echo "Actual keystore SHA-256:   $ACTUAL_KEYSTORE_SHA256" >&2
+              exit 1
+            fi
+
+            if ! keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+              echo "The v3 keystore file is correct, but ANDROID_KEYSTORE_PASSWORD or ANDROID_KEY_ALIAS is incorrect." >&2
+              exit 1
+            fi
+
+            CHECK_STORE="$RUNNER_TEMP/sentinel-signing-check.p12"
+            rm -f "$CHECK_STORE"
+            if ! keytool -importkeystore \
+              -srckeystore "$KEYSTORE_PATH" \
+              -srcstorepass "$KEYSTORE_PASSWORD" \
+              -srcalias "$KEY_ALIAS" \
+              -srckeypass "$KEY_PASSWORD" \
+              -destkeystore "$CHECK_STORE" \
+              -deststoretype PKCS12 \
+              -deststorepass 'SentinelCiCheck123!' \
+              -destkeypass 'SentinelCiCheck123!' \
+              -noprompt >/dev/null 2>&1; then
+              echo "The v3 keystore and store password are correct, but ANDROID_KEY_PASSWORD is incorrect." >&2
+              exit 1
+            fi
+            rm -f "$CHECK_STORE"
+
             cat > android/key.properties <<EOF
           storePassword=${KEYSTORE_PASSWORD}
           keyPassword=${KEY_PASSWORD}
           keyAlias=${KEY_ALIAS}
           storeFile=netsource-sentinel-release.jks
           EOF
-            echo "Permanent Netsource Sentinel signing key prepared."
+            echo "Permanent Netsource Sentinel v3 signing key and credentials verified."
           elif [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "Permanent release signing secrets are required for main/manual builds." >&2
             exit 1
@@ -94,7 +127,7 @@ jobs:
               echo "Actual:   $ACTUAL_CERT_SHA256" >&2
               exit 1
             fi
-            echo "Permanent Netsource Sentinel release certificate verified."
+            echo "Permanent Netsource Sentinel v3 release certificate verified."
           fi
 
       - name: Upload APK
