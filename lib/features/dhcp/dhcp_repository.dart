@@ -6,10 +6,13 @@ class DhcpRepository {
 
   final OpnSenseApiClient api;
 
+  static const String leases4Path = '/api/kea/leases4/search';
+  static const String deleteLease4Path = '/api/kea/leases4/del_lease';
+
   Future<KeaDhcpData> loadAll() async {
     final results = await Future.wait<dynamic>([
       api.getData(
-        '/api/kea/leases/search',
+        leases4Path,
         queryParameters: const {'current': 1, 'rowCount': 1000},
       ),
       api.getData(
@@ -32,7 +35,7 @@ class DhcpRepository {
 
   Future<List<DhcpLeaseSummary>> loadLeases() async {
     final raw = await api.getData(
-      '/api/kea/leases/search',
+      leases4Path,
       queryParameters: const {'current': 1, 'rowCount': 1000},
     );
     return parseLeases(raw);
@@ -101,7 +104,7 @@ class DhcpRepository {
 
   Future<void> releaseLease(String ip) async {
     await api.postData(
-      '/api/kea/leases/del_lease/${Uri.encodeComponent(ip)}',
+      '$deleteLease4Path/${Uri.encodeComponent(ip)}',
     );
   }
 
@@ -147,6 +150,8 @@ class DhcpRepository {
           'if',
           'interface_name',
           'iface',
+          'if_name',
+          'if_descr',
         ]),
         state: _first(row, const [
           'state',
@@ -171,7 +176,7 @@ class DhcpRepository {
           'subnet_id',
           'subnetid',
         ]),
-        source: 'Kea',
+        source: 'Kea IPv4',
       );
     }).where((item) => item.ip.isNotEmpty).toList();
   }
@@ -301,7 +306,9 @@ class DhcpRepository {
     final ipValue = _ipv4ToInt(ip);
     final networkValue = _ipv4ToInt(parts[0]);
     if (ipValue == null || networkValue == null) return false;
-    final mask = prefix == 0 ? 0 : (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF;
+    final mask = prefix == 0
+        ? 0
+        : (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF;
     return (ipValue & mask) == (networkValue & mask);
   }
 
