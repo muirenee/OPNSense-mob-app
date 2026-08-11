@@ -76,19 +76,19 @@ class ApiCapabilityProbe {
       path: '/api/diagnostics/interface/search_ndp',
     ),
     (
-      id: 'dnsmasqLeases',
-      label: 'Dnsmasq DHCP leases',
-      path: '/api/dnsmasq/leases/search',
-    ),
-    (
       id: 'keaLeases',
-      label: 'Kea DHCPv4 leases',
-      path: '/api/kea/leases4/search',
+      label: 'KEA DHCPv4 leases',
+      path: '/api/kea/leases/search',
     ),
     (
-      id: 'dhcpv4Leases',
-      label: 'ISC DHCPv4 leases',
-      path: '/api/dhcpv4/leases/searchLease',
+      id: 'keaReservations',
+      label: 'KEA DHCPv4 reservations',
+      path: '/api/kea/dhcpv4/search_reservation',
+    ),
+    (
+      id: 'keaSubnets',
+      label: 'KEA DHCPv4 subnets',
+      path: '/api/kea/dhcpv4/search_subnet',
     ),
     (
       id: 'wireguard',
