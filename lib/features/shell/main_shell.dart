@@ -52,7 +52,7 @@ class _MainShellState extends State<MainShell> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Netsource OPN Manager'),
+        title: const Text('Netsource Sentinel'),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -220,7 +220,7 @@ class _MoreScreen extends StatelessWidget {
         const Card(
           child: ListTile(
             leading: Icon(Icons.info_outline),
-            title: Text('Version 0.4.0'),
+            title: Text('Netsource Sentinel · Version 0.4.0'),
             subtitle: Text(
               'VPN · diagnostics · PCAP · safe firewall/service actions',
             ),
