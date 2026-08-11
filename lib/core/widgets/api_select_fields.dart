@@ -12,6 +12,8 @@ class ApiSingleSelectField extends StatelessWidget {
     this.prefixIcon,
     this.enabled = true,
     this.helperText,
+    this.allowEmpty = true,
+    this.emptyLabel = 'None',
   });
 
   final String label;
@@ -21,33 +23,44 @@ class ApiSingleSelectField extends StatelessWidget {
   final IconData? prefixIcon;
   final bool enabled;
   final String? helperText;
+  final bool allowEmpty;
+  final String emptyLabel;
 
   @override
   Widget build(BuildContext context) {
     final unique = <String, ApiChoice>{
-      for (final choice in choices) choice.value: choice,
+      for (final choice in choices)
+        if (choice.value.isNotEmpty) choice.value: choice,
     };
-    final current = value != null && unique.containsKey(value) ? value : null;
+    final current = value != null && unique.containsKey(value) ? value! : '';
+    final items = <DropdownMenuItem<String>>[
+      if (allowEmpty)
+        DropdownMenuItem<String>(
+          value: '',
+          child: Text(emptyLabel),
+        ),
+      ...unique.values.map(
+        (choice) => DropdownMenuItem<String>(
+          value: choice.value,
+          child: Text(choice.label, overflow: TextOverflow.ellipsis),
+        ),
+      ),
+    ];
+    final effectiveCurrent = current.isEmpty && !allowEmpty ? null : current;
     return DropdownButtonFormField<String>(
-      initialValue: current,
+      initialValue: effectiveCurrent,
       isExpanded: true,
       decoration: InputDecoration(
         labelText: label,
         helperText: helperText,
         prefixIcon: prefixIcon == null ? null : Icon(prefixIcon),
       ),
-      items: unique.values
-          .map(
-            (choice) => DropdownMenuItem<String>(
-              value: choice.value,
-              child: Text(
-                choice.label,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          )
-          .toList(),
-      onChanged: enabled ? onChanged : null,
+      items: items,
+      onChanged: enabled
+          ? (selected) => onChanged(
+                selected == null || selected.isEmpty ? null : selected,
+              )
+          : null,
     );
   }
 }
