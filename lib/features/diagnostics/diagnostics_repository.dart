@@ -23,7 +23,7 @@ class DiagnosticsRepository {
 
   Future<Map<String, dynamic>> loadPacketCaptureSettings() async {
     final raw = await api.getData('/api/diagnostics/packet_capture/get');
-    return extractSettings(raw, modelKey: 'packet_capture');
+    return extractSettings(raw, modelKey: 'packetcapture');
   }
 
   Future<String> runTraceroute(
@@ -285,7 +285,7 @@ class DiagnosticsRepository {
     bool invertPort = false,
   }) {
     return {
-      'packet_capture': {
+      'packetcapture': {
         'settings': {
           'interface': encodeApiChoiceValues(interfaces),
           'description': 'Netsource Sentinel capture',
@@ -309,7 +309,9 @@ class DiagnosticsRepository {
   }) {
     if (raw is! Map) return <String, dynamic>{};
     final map = Map<String, dynamic>.from(raw);
-    dynamic candidate = map[modelKey] ?? map;
+    dynamic candidate = map[modelKey] ??
+        (modelKey == 'packetcapture' ? map['packet_capture'] : null) ??
+        map;
     if (candidate is Map) {
       final model = Map<String, dynamic>.from(candidate);
       candidate = model['settings'] ?? model;
