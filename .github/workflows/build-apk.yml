@@ -1,0 +1,76 @@
+name: Build Netsource OPN Manager APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct v0.4 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .ci/source.part* | base64 --decode > /tmp/opn_v04.tar.xz
+          echo "f6dc18fbd9fc8442dafd42d176f2890a32b4968703a78d02784a27602f9d5ad1  /tmp/opn_v04.tar.xz" | sha256sum --check --strict
+          mkdir -p app
+          tar -xJf /tmp/opn_v04.tar.xz -C app
+          test -f app/pubspec.yaml
+          test -f app/lib/main.dart
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        working-directory: app
+        run: flutter --version
+
+      - name: Generate Android project
+        working-directory: app
+        run: flutter create --platforms=android --org com.netsource .
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Test
+        working-directory: app
+        run: flutter test
+
+      - name: Build release APK
+        working-directory: app
+        run: flutter build apk --release
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s app/build/app/outputs/flutter-apk/app-release.apk
+          sha256sum app/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: netsource-opn-manager-v0.4.0-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
