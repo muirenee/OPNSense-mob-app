@@ -18,6 +18,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,20 +46,47 @@ jobs:
       - name: Test
         run: flutter test
 
-      - name: Build release APK
-        run: flutter build apk --release
-
-      - name: Verify APK
+      - name: Prepare permanent release signing
         shell: bash
         run: |
           set -euo pipefail
-          test -s build/app/outputs/flutter-apk/app-release.apk
-          sha256sum build/app/outputs/flutter-apk/app-release.apk
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 --decode > android/app/netsource-sentinel-release.jks
+            cat > android/key.properties <<EOF
+          storePassword=${KEYSTORE_PASSWORD}
+          keyPassword=${KEY_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          storeFile=netsource-sentinel-release.jks
+          EOF
+            echo "Permanent Netsource Sentinel signing key prepared."
+          elif [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Permanent release signing secrets are required for main/manual builds." >&2
+            exit 1
+          else
+            echo "PR CI: signing secrets are unavailable, so this validation build may use the runner debug key."
+          fi
+
+      - name: Build release APK
+        env:
+          SENTINEL_REQUIRE_RELEASE_SIGNING: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
+        run: flutter build apk --release
+
+      - name: Verify APK and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$APK"
+          sha256sum "$APK"
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+            "$BUILD_TOOLS/apksigner" verify --print-certs "$APK"
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: netsource-opn-manager-apk
+          name: netsource-sentinel-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30
