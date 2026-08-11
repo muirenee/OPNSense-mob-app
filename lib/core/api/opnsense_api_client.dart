@@ -128,7 +128,7 @@ class OpnSenseApiClient {
   static Map<String, dynamic> _toMap(dynamic data) {
     if (data is Map<String, dynamic>) return data;
     if (data is Map) return Map<String, dynamic>.from(data);
-    throw const OpnSenseException('OPNsense returned an unexpected response.');
+    throw const OpnSenseException('The firewall returned an unexpected response.');
   }
 
   static OpnSenseException _mapDioError(DioException error) {
@@ -147,7 +147,7 @@ class OpnSenseApiClient {
     }
     if (status == 404) {
       return const OpnSenseException(
-        'This API endpoint is not available on the connected OPNsense version.',
+        'This API endpoint is not available on the connected firewall version.',
         statusCode: 404,
       );
     }
