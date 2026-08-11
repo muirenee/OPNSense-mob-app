@@ -1,3 +1,4 @@
+import '../../core/api/api_choice.dart';
 import '../../core/api/opnsense_api_client.dart';
 import '../../core/api/opnsense_exception.dart';
 import 'firewall_models.dart';
@@ -19,10 +20,11 @@ class FirewallRepository {
     return parseRules(raw);
   }
 
-  Future<Map<String, dynamic>> getRule(String uuid) async {
-    final raw = await api.getData(
-      '/api/firewall/filter/getRule/${Uri.encodeComponent(uuid)}',
-    );
+  Future<Map<String, dynamic>> getRule([String? uuid]) async {
+    final suffix = uuid == null || uuid.isEmpty
+        ? ''
+        : '/${Uri.encodeComponent(uuid)}';
+    final raw = await api.getData('/api/firewall/filter/getRule$suffix');
     if (raw is Map) {
       final map = Map<String, dynamic>.from(raw);
       final rule = map['rule'];
@@ -48,9 +50,11 @@ class FirewallRepository {
 
   Future<String> deleteRuleSafely(FirewallRuleSummary rule) async {
     if (rule.uuid.isEmpty) throw StateError('Firewall rule UUID is missing.');
-    return _changeSafely(() => api.postData(
-          '/api/firewall/filter/delRule/${Uri.encodeComponent(rule.uuid)}',
-        ));
+    return _changeSafely(
+      () => api.postData(
+        '/api/firewall/filter/delRule/${Uri.encodeComponent(rule.uuid)}',
+      ),
+    );
   }
 
   Future<String> toggleRuleSafely({
@@ -60,9 +64,11 @@ class FirewallRepository {
     if (rule.uuid.isEmpty) {
       throw StateError('The selected rule does not have a UUID.');
     }
-    return _changeSafely(() => api.postData(
-          '/api/firewall/filter/toggleRule/${Uri.encodeComponent(rule.uuid)}/${enabled ? 1 : 0}',
-        ));
+    return _changeSafely(
+      () => api.postData(
+        '/api/firewall/filter/toggleRule/${Uri.encodeComponent(rule.uuid)}/${enabled ? 1 : 0}',
+      ),
+    );
   }
 
   Future<String> _changeSafely(Future<dynamic> Function() change) async {
@@ -94,9 +100,33 @@ class FirewallRepository {
     return revision;
   }
 
+  static List<ApiChoice> choices(Map<String, dynamic> model, String field) =>
+      parseApiChoices(model[field], scalarValuesSelected: false);
+
+  static Set<String> selectedChoices(
+    Map<String, dynamic> model,
+    String field,
+  ) =>
+      parseApiChoices(model[field])
+          .where((choice) => choice.selected)
+          .map((choice) => choice.value)
+          .toSet();
+
+  static String? selectedChoice(Map<String, dynamic> model, String field) {
+    final parsed = parseApiChoices(model[field]);
+    for (final choice in parsed) {
+      if (choice.selected) return choice.value;
+    }
+    final raw = model[field];
+    if (raw is String && raw.trim().isNotEmpty) return raw.trim();
+    return null;
+  }
+
   static List<FirewallRuleSummary> parseRules(dynamic raw) {
     dynamic candidate = raw;
-    if (raw is Map) candidate = raw['rows'] ?? raw['rules'] ?? raw['items'] ?? raw;
+    if (raw is Map) {
+      candidate = raw['rows'] ?? raw['rules'] ?? raw['items'] ?? raw;
+    }
 
     final rows = <Map<String, dynamic>>[];
     if (candidate is List) {
@@ -123,7 +153,10 @@ class FirewallRepository {
         source: _first(row, const ['source_net', 'source', 'src']),
         sourcePort: _first(row, const ['source_port', 'src_port']),
         destination: _first(row, const ['destination_net', 'destination', 'dst']),
-        destinationPort: _first(row, const ['destination_port', 'dst_port']),
+        destinationPort: _first(
+          row,
+          const ['destination_port', 'dst_port'],
+        ),
         description: _first(row, const ['description', 'descr', 'name']),
         enabled: _boolValue(row['enabled'], defaultValue: true) &&
             !_boolValue(row['disabled']),
@@ -134,8 +167,7 @@ class FirewallRepository {
 
   static String _first(Map<String, dynamic> map, List<String> keys) {
     for (final key in keys) {
-      final value = map[key];
-      final text = _display(value);
+      final text = _display(map[key]);
       if (text.isNotEmpty) return text;
     }
     return '';
@@ -145,23 +177,8 @@ class FirewallRepository {
     if (value == null) return '';
     if (value is String) return value.trim();
     if (value is num || value is bool) return value.toString();
-    if (value is List) {
-      return value.map(_display).where((item) => item.isNotEmpty).join(', ');
-    }
-    if (value is Map) {
-      for (final key in ['selected', 'value', 'name', 'label']) {
-        if (value[key] != null) {
-          final result = _display(value[key]);
-          if (result.isNotEmpty) return result;
-        }
-      }
-      final selected = <String>[];
-      for (final entry in value.entries) {
-        if (_boolValue(entry.value)) selected.add(entry.key.toString());
-      }
-      if (selected.isNotEmpty) return selected.join(', ');
-    }
-    return value.toString();
+    if (value is List || value is Map) return apiChoiceDisplayText(value);
+    return '';
   }
 
   static bool _boolValue(dynamic value, {bool defaultValue = false}) {
