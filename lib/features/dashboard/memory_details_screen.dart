@@ -10,7 +10,9 @@ class MemoryDetailsScreen extends StatelessWidget {
     final memory = _memoryMap(resources);
     final total = _asDouble(memory['total']);
     final used = _asDouble(memory['used']);
-    final available = total != null && used != null ? (total - used).clamp(0, total) : null;
+    final available = total != null && used != null
+        ? (total - used).clamp(0, total).toDouble()
+        : null;
     final percent = total != null && total > 0 && used != null
         ? ((used / total) * 100).clamp(0, 100).toDouble()
         : null;
