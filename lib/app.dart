@@ -20,7 +20,7 @@ class _OpnManagerAppState extends State<OpnManagerApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Netsource OPN Manager',
+      title: 'Netsource Sentinel',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: _themeMode,
