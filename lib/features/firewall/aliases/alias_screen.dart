@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/api/opnsense_api_client.dart';
 import '../../audit/audit_repository.dart';
 import '../../profiles/firewall_profile.dart';
+import 'alias_editor.dart';
 import 'alias_models.dart';
 import 'alias_repository.dart';
 
@@ -28,7 +29,9 @@ class _AliasScreenState extends State<AliasScreen> {
   @override
   void initState() {
     super.initState();
-    _repository = AliasRepository(OpnSenseApiClient(profile: widget.profile, credentials: widget.credentials));
+    _repository = AliasRepository(
+      OpnSenseApiClient(profile: widget.profile, credentials: widget.credentials),
+    );
     _audit = AuditRepository(profileId: widget.profile.id);
     _future = _repository.load();
   }
@@ -52,6 +55,27 @@ class _AliasScreenState extends State<AliasScreen> {
     await _future;
   }
 
+  Future<void> _edit([FirewallAliasSummary? alias]) async {
+    Map<String, dynamic> initial = <String, dynamic>{};
+    if (alias != null && alias.uuid.isNotEmpty) {
+      try {
+        initial = await _repository.getItem(alias.uuid);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AliasEditor(
+          repository: _repository,
+          audit: _audit,
+          alias: alias,
+          initial: initial,
+        ),
+      ),
+    );
+    if (saved == true) await _refresh();
+  }
+
   Future<void> _toggle(FirewallAliasSummary alias) async {
     final enabled = !alias.enabled;
     final verb = enabled ? 'Enable' : 'Disable';
@@ -72,10 +96,14 @@ class _AliasScreenState extends State<AliasScreen> {
     setState(() => _busyUuid = alias.uuid);
     try {
       await _repository.setEnabled(alias, enabled);
-      await _audit.record(action: '$verb alias', target: alias.name, result: 'success');
+      try {
+        await _audit.record(action: '$verb alias', target: alias.name, result: 'success');
+      } catch (_) {}
       await _refresh();
     } catch (error) {
-      await _audit.record(action: '$verb alias', target: alias.name, result: 'failed', details: error.toString());
+      try {
+        await _audit.record(action: '$verb alias', target: alias.name, result: 'failed', details: error.toString());
+      } catch (_) {}
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Alias change failed: $error')));
     } finally {
       if (mounted) setState(() => _busyUuid = null);
@@ -87,7 +115,7 @@ class _AliasScreenState extends State<AliasScreen> {
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Delete alias?'),
-            content: Text('Delete ${alias.name}? References to this alias may stop working. This cannot be undone from the app.'),
+            content: Text('Delete ${alias.name}? References to this alias may stop working.'),
             actions: [
               TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
               FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
@@ -100,10 +128,14 @@ class _AliasScreenState extends State<AliasScreen> {
     setState(() => _busyUuid = alias.uuid);
     try {
       await _repository.delete(alias);
-      await _audit.record(action: 'Delete alias', target: alias.name, result: 'success');
+      try {
+        await _audit.record(action: 'Delete alias', target: alias.name, result: 'success');
+      } catch (_) {}
       await _refresh();
     } catch (error) {
-      await _audit.record(action: 'Delete alias', target: alias.name, result: 'failed', details: error.toString());
+      try {
+        await _audit.record(action: 'Delete alias', target: alias.name, result: 'failed', details: error.toString());
+      } catch (_) {}
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Alias delete failed: $error')));
     } finally {
       if (mounted) setState(() => _busyUuid = null);
@@ -115,8 +147,17 @@ class _AliasScreenState extends State<AliasScreen> {
     return FutureBuilder<List<FirewallAliasSummary>>(
       future: _future,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text('Aliases unavailable\n${snapshot.error}', textAlign: TextAlign.center)));
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text('Aliases unavailable\n${snapshot.error}', textAlign: TextAlign.center),
+            ),
+          );
+        }
         final aliases = snapshot.data ?? const <FirewallAliasSummary>[];
         return RefreshIndicator(
           onRefresh: _refresh,
@@ -126,59 +167,84 @@ class _AliasScreenState extends State<AliasScreen> {
             children: [
               Row(
                 children: [
-                  Expanded(child: Text('Aliases', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
-                  Chip(label: Text('${aliases.length} items')),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Aliases', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                        Text('${aliases.length} matching items'),
+                      ],
+                    ),
+                  ),
+                  FilledButton.icon(onPressed: () => _edit(), icon: const Icon(Icons.add), label: const Text('Add')),
                 ],
               ),
               const SizedBox(height: 12),
-              TextField(controller: _search, onChanged: _onSearch, decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search aliases')),
+              TextField(
+                controller: _search,
+                onChanged: _onSearch,
+                decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search aliases'),
+              ),
               const SizedBox(height: 12),
               for (final alias in aliases) ...[
                 Card(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 5),
-                          child: Icon(alias.enabled ? Icons.label_outline : Icons.label_off_outlined, color: alias.enabled ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(alias.name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                              const SizedBox(height: 3),
-                              Text([alias.type, alias.content].where((item) => item.isNotEmpty).join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
-                              if (alias.description.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(alias.description, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () => _edit(alias),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 5),
+                            child: Icon(
+                              alias.enabled ? Icons.label_outline : Icons.label_off_outlined,
+                              color: alias.enabled ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(alias.name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                                const SizedBox(height: 3),
+                                Text([alias.type, alias.content].where((item) => item.isNotEmpty).join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                if (alias.description.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(alias.description, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
-                        ),
-                        if (_busyUuid == alias.uuid)
-                          const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))
-                        else
-                          PopupMenuButton<String>(
-                            onSelected: (value) {
-                              if (value == 'toggle') _toggle(alias);
-                              if (value == 'delete') _delete(alias);
-                            },
-                            itemBuilder: (_) => [
-                              PopupMenuItem(value: 'toggle', child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(alias.enabled ? Icons.toggle_off_outlined : Icons.toggle_on_outlined), title: Text(alias.enabled ? 'Disable' : 'Enable'))),
-                              const PopupMenuItem(value: 'delete', child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.delete_outline), title: Text('Delete'))),
-                            ],
-                          ),
-                      ],
+                          if (_busyUuid == alias.uuid)
+                            const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                            )
+                          else
+                            PopupMenuButton<String>(
+                              onSelected: (value) {
+                                if (value == 'edit') _edit(alias);
+                                if (value == 'toggle') _toggle(alias);
+                                if (value == 'delete') _delete(alias);
+                              },
+                              itemBuilder: (_) => [
+                                const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                                PopupMenuItem(value: 'toggle', child: Text(alias.enabled ? 'Disable' : 'Enable')),
+                                const PopupMenuItem(value: 'delete', child: Text('Delete')),
+                              ],
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
                 const SizedBox(height: 8),
               ],
-              if (aliases.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('No matching aliases returned.'))),
+              if (aliases.isEmpty)
+                const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('No matching aliases returned.'))),
             ],
           ),
         );
