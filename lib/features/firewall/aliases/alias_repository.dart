@@ -17,6 +17,18 @@ class AliasRepository {
     return parse(raw);
   }
 
+  Future<void> setEnabled(FirewallAliasSummary alias, bool enabled) async {
+    if (alias.uuid.isEmpty) throw StateError('Alias UUID is missing.');
+    await api.postData('/api/firewall/alias/toggleItem/${Uri.encodeComponent(alias.uuid)}/${enabled ? 1 : 0}');
+    await api.postData('/api/firewall/alias/reconfigure');
+  }
+
+  Future<void> delete(FirewallAliasSummary alias) async {
+    if (alias.uuid.isEmpty) throw StateError('Alias UUID is missing.');
+    await api.postData('/api/firewall/alias/delItem/${Uri.encodeComponent(alias.uuid)}');
+    await api.postData('/api/firewall/alias/reconfigure');
+  }
+
   static List<FirewallAliasSummary> parse(dynamic raw) {
     dynamic candidate = raw;
     if (raw is Map) candidate = raw['rows'] ?? raw['items'] ?? raw['aliases'] ?? raw;
