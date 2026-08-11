@@ -64,7 +64,7 @@ class _FirewallScreenState extends State<FirewallScreen> {
             title: Text('$verb firewall rule?'),
             content: Text(
               '$verb "${rule.description.isEmpty ? rule.uuid : rule.description}"?\n\n'
-              'The app will create an OPNsense savepoint, apply the change, verify the management API remains reachable, then confirm the change. If reachability fails, the rollback timer is intentionally left active.',
+              'Netsource Sentinel will create a firewall savepoint, apply the change, verify the management API remains reachable, then confirm the change. If reachability fails, the rollback timer is intentionally left active.',
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
@@ -103,7 +103,7 @@ class _FirewallScreenState extends State<FirewallScreen> {
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Rule change failed: $error. If apply succeeded but reachability failed, OPNsense should keep the rollback timer active.')),
+          SnackBar(content: Text('Rule change failed: $error. If apply succeeded but reachability failed, the firewall should keep the rollback timer active.')),
         );
       }
     } finally {
@@ -152,7 +152,7 @@ class _FirewallScreenState extends State<FirewallScreen> {
               ),
               const SizedBox(height: 12),
               const _NoticeCard(
-                text: 'Only Firewall Automation/MVC rules exposed by the OPNsense API appear here. Enable/disable is guarded by confirmation, savepoint rollback protection and a local audit trail.',
+                text: 'Only Firewall Automation/MVC rules exposed by the firewall API appear here. Enable/disable is guarded by confirmation, savepoint rollback protection and a local audit trail.',
               ),
               const SizedBox(height: 12),
               if (rules.isEmpty)

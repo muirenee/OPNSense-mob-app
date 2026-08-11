@@ -32,7 +32,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   void initState() {
     super.initState();
     _name = TextEditingController(
-      text: widget.initialProfile?.name ?? 'My OPNsense',
+      text: widget.initialProfile?.name ?? 'My Sentinel',
     );
     _url = TextEditingController(
       text: widget.initialProfile?.baseUrl ?? 'https://',
@@ -132,7 +132,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isEditing ? 'Edit firewall' : 'OPNsense firewalls'),
+        title: Text(isEditing ? 'Edit firewall' : 'Netsource Sentinel firewalls'),
       ),
       body: SafeArea(
         child: ListView(
@@ -204,7 +204,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Netsource OPN Manager',
+              'Netsource Sentinel',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w800,
@@ -212,7 +212,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Connect directly to your OPNsense API. Credentials are stored in platform secure storage.',
+              'Connect directly to your Netsource Sentinel firewall API. Credentials are stored in platform secure storage.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),

@@ -46,7 +46,7 @@ class DiagnosticsRepository {
           'packetsize': '56',
           'disable_frag': '0',
           'interval': '1',
-          'description': 'Netsource OPN Manager',
+          'description': 'Netsource Sentinel',
         },
       },
     );
@@ -86,7 +86,7 @@ class DiagnosticsRepository {
       data: {
         'packet_capture': {
           'interface': interfaceName,
-          'description': 'Netsource OPN Manager capture',
+          'description': 'Netsource Sentinel capture',
           'promiscuous': '0',
           'fam': 'any',
           'protocol_not': '0',
@@ -131,7 +131,7 @@ class DiagnosticsRepository {
       '/api/diagnostics/packet_capture/download/${Uri.encodeComponent(jobId)}',
     );
     final safeId = jobId.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_');
-    final file = File('${Directory.systemTemp.path}/opnsense_capture_$safeId.pcap');
+    final file = File('${Directory.systemTemp.path}/netsource_sentinel_capture_$safeId.pcap');
     await file.writeAsBytes(bytes, flush: true);
     return file;
   }

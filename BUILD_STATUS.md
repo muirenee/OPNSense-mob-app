@@ -10,4 +10,4 @@ Verified on GitHub Actions with Flutter 3.44.7 / Dart 3.12.2:
 
 Repository normalization also removed the temporary `.ci/source.part*` transport files and bootstrap files. The permanent `.github/workflows/build-apk.yml` builds directly from the repository root.
 
-Android release configuration includes the required `INTERNET` permission and the product display name `Netsource OPN Manager`.
+Android and iOS product display names are `Netsource Sentinel`. Android release configuration includes the required `INTERNET` permission.

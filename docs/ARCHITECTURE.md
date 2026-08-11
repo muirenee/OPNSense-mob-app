@@ -4,12 +4,12 @@
 
 1. Direct client-to-firewall HTTPS. No mandatory cloud relay.
 2. Secrets stored only in platform secure storage.
-3. Least-privilege OPNsense API users.
-4. Capability probing because endpoint availability differs by OPNsense release, enabled services/plugins and ACLs.
+3. Least-privilege firewall API users.
+4. Capability probing because endpoint availability differs by firewall release, enabled services/plugins and ACLs.
 5. Read-only by default; write actions require explicit confirmation.
 6. API transport isolated from feature repositories so endpoints can evolve without rewriting the UI.
 7. Polling is used only where it adds operational value.
-8. Potentially connectivity-impacting firewall changes use OPNsense rollback protection.
+8. Potentially connectivity-impacting firewall changes use rollback protection.
 9. App-initiated write actions are recorded locally without credentials or secrets.
 
 ## v0.4 modules
@@ -61,7 +61,7 @@ A Firewall Automation rule toggle uses a guarded transaction:
 4. verify `searchRule` remains reachable with the same API privilege
 5. `cancelRollback/<revision>`
 
-If reachability verification fails after apply, rollback cancellation is intentionally skipped so OPNsense can revert the firewall component when its rollback timer is available.
+If reachability verification fails after apply, rollback cancellation is intentionally skipped so the firewall can revert the component when its rollback timer is available.
 
 ## Write-action policy
 
