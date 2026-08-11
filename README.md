@@ -55,14 +55,24 @@ Flutter mobile client for OPNsense firewall administration.
 - NAT/alias editing remains read-only in v0.4.
 - Self-signed certificate bypass is optional and deliberately warned; normal TLS validation is the default.
 
+## Repository layout
+
+The repository is normalized as a standard Flutter application. Android and iOS platform wrappers are committed alongside the application source:
+
+- `lib/` — application source
+- `test/` — project tests
+- `android/` — Android platform project
+- `ios/` — iOS platform project
+- `docs/` — architecture and roadmap documentation
+- `.github/workflows/build-apk.yml` — Android CI build
+
 ## Android build
 
-This source bundle intentionally keeps generated Flutter platform wrappers out of source control. On a machine or CI runner with Flutter installed:
+On a machine with Flutter installed:
 
 ```bash
-flutter create --platforms=android,ios --org com.netsource .
 flutter pub get
-flutter analyze
+flutter analyze --no-fatal-infos --no-fatal-warnings
 flutter test
 flutter build apk --release
 ```
@@ -73,7 +83,7 @@ The APK is written to:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-The included `.github/workflows/android.yml` performs the same sequence and uploads the release APK as a workflow artifact.
+The GitHub Actions workflow performs the same sequence, verifies the generated APK and uploads it as a workflow artifact.
 
 ## OPNsense setup
 
