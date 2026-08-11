@@ -25,13 +25,13 @@ class FirewallRuleEditor extends StatefulWidget {
 class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
   late final TextEditingController _description;
   late final TextEditingController _interfaceName;
+  late final TextEditingController _protocol;
   late final TextEditingController _source;
   late final TextEditingController _sourcePort;
   late final TextEditingController _destination;
   late final TextEditingController _destinationPort;
   String _action = 'pass';
   String _direction = 'in';
-  String _protocol = 'TCP';
   bool _enabled = true;
   bool _logging = false;
   bool _busy = false;
@@ -42,7 +42,9 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
     String value(List<String> keys, String fallback) {
       for (final key in keys) {
         final raw = widget.initial[key];
-        if (raw != null && raw.toString().trim().isNotEmpty) return raw.toString().trim();
+        if (raw != null && raw.toString().trim().isNotEmpty) {
+          return raw.toString().trim();
+        }
       }
       return fallback;
     }
@@ -53,6 +55,9 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
     _interfaceName = TextEditingController(
       text: value(const ['interface', 'interfaces'], widget.rule?.interfaceName ?? ''),
     );
+    _protocol = TextEditingController(
+      text: value(const ['protocol'], widget.rule?.protocol ?? 'TCP'),
+    );
     _source = TextEditingController(
       text: value(const ['source_net', 'source'], widget.rule?.source ?? ''),
     );
@@ -60,16 +65,27 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
       text: value(const ['source_port'], widget.rule?.sourcePort ?? ''),
     );
     _destination = TextEditingController(
-      text: value(const ['destination_net', 'destination'], widget.rule?.destination ?? ''),
+      text: value(
+        const ['destination_net', 'destination'],
+        widget.rule?.destination ?? '',
+      ),
     );
     _destinationPort = TextEditingController(
-      text: value(const ['destination_port'], widget.rule?.destinationPort ?? ''),
+      text: value(
+        const ['destination_port'],
+        widget.rule?.destinationPort ?? '',
+      ),
     );
-    _action = value(const ['action'], widget.rule?.action.toLowerCase() ?? 'pass').toLowerCase();
+    _action = value(
+      const ['action'],
+      widget.rule?.action.toLowerCase() ?? 'pass',
+    ).toLowerCase();
     if (!const {'pass', 'block', 'reject'}.contains(_action)) _action = 'pass';
-    _direction = value(const ['direction'], widget.rule?.direction.toLowerCase() ?? 'in').toLowerCase();
+    _direction = value(
+      const ['direction'],
+      widget.rule?.direction.toLowerCase() ?? 'in',
+    ).toLowerCase();
     if (!const {'in', 'out'}.contains(_direction)) _direction = 'in';
-    _protocol = value(const ['protocol'], widget.rule?.protocol ?? 'TCP');
     _enabled = widget.rule?.enabled ?? _truthy(widget.initial['enabled'], true);
     _logging = widget.rule?.logging ?? _truthy(widget.initial['log'], false);
   }
@@ -78,13 +94,15 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
     if (value == null) return fallback;
     if (value is bool) return value;
     if (value is num) return value != 0;
-    return const {'1', 'true', 'yes', 'on'}.contains(value.toString().toLowerCase());
+    return const {'1', 'true', 'yes', 'on'}
+        .contains(value.toString().toLowerCase());
   }
 
   @override
   void dispose() {
     _description.dispose();
     _interfaceName.dispose();
+    _protocol.dispose();
     _source.dispose();
     _sourcePort.dispose();
     _destination.dispose();
@@ -98,7 +116,7 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
       'description': _description.text.trim(),
       'action': _action,
       'direction': _direction,
-      'protocol': _protocol.trim(),
+      'protocol': _protocol.text.trim(),
       'interface': _interfaceName.text.trim(),
       'source_net': _source.text.trim(),
       'source_port': _sourcePort.text.trim(),
@@ -115,7 +133,9 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
       try {
         await widget.audit.record(
           action: widget.rule == null ? 'Add firewall rule' : 'Edit firewall rule',
-          target: _description.text.trim().isEmpty ? (widget.rule?.uuid ?? 'new rule') : _description.text.trim(),
+          target: _description.text.trim().isEmpty
+              ? (widget.rule?.uuid ?? 'new rule')
+              : _description.text.trim(),
           result: 'success',
           details: 'rollback revision $revision',
         );
@@ -136,11 +156,16 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
   Widget build(BuildContext context) {
     final editing = widget.rule != null;
     return Scaffold(
-      appBar: AppBar(title: Text(editing ? 'Edit firewall rule' : 'Add firewall rule')),
+      appBar: AppBar(
+        title: Text(editing ? 'Edit firewall rule' : 'Add firewall rule'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(controller: _description, decoration: const InputDecoration(labelText: 'Description')),
+          TextField(
+            controller: _description,
+            decoration: const InputDecoration(labelText: 'Description'),
+          ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: _action,
@@ -163,47 +188,104 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
                     DropdownMenuItem(value: 'in', child: Text('In')),
                     DropdownMenuItem(value: 'out', child: Text('Out')),
                   ],
-                  onChanged: (value) => setState(() => _direction = value ?? 'in'),
+                  onChanged: (value) =>
+                      setState(() => _direction = value ?? 'in'),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: TextField(
-                  decoration: const InputDecoration(labelText: 'Protocol', hintText: 'TCP, UDP, any'),
-                  controller: TextEditingController(text: _protocol),
-                  onChanged: (value) => _protocol = value,
+                  controller: _protocol,
+                  decoration: const InputDecoration(
+                    labelText: 'Protocol',
+                    hintText: 'TCP, UDP, any',
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          TextField(controller: _interfaceName, decoration: const InputDecoration(labelText: 'Interface', hintText: 'Optional interface identifier')),
+          TextField(
+            controller: _interfaceName,
+            decoration: const InputDecoration(
+              labelText: 'Interface',
+              hintText: 'Optional interface identifier',
+            ),
+          ),
           const SizedBox(height: 16),
-          Text('Source', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+          Text(
+            'Source',
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800),
+          ),
           const SizedBox(height: 8),
-          TextField(controller: _source, decoration: const InputDecoration(labelText: 'Network / alias', hintText: 'any, 192.168.1.0/24, alias_name')),
+          TextField(
+            controller: _source,
+            decoration: const InputDecoration(
+              labelText: 'Network / alias',
+              hintText: 'any, 192.168.1.0/24, alias_name',
+            ),
+          ),
           const SizedBox(height: 10),
-          TextField(controller: _sourcePort, decoration: const InputDecoration(labelText: 'Port / alias')),
+          TextField(
+            controller: _sourcePort,
+            decoration: const InputDecoration(labelText: 'Port / alias'),
+          ),
           const SizedBox(height: 16),
-          Text('Destination', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+          Text(
+            'Destination',
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800),
+          ),
           const SizedBox(height: 8),
-          TextField(controller: _destination, decoration: const InputDecoration(labelText: 'Network / alias', hintText: 'any, 10.0.0.0/24, alias_name')),
+          TextField(
+            controller: _destination,
+            decoration: const InputDecoration(
+              labelText: 'Network / alias',
+              hintText: 'any, 10.0.0.0/24, alias_name',
+            ),
+          ),
           const SizedBox(height: 10),
-          TextField(controller: _destinationPort, decoration: const InputDecoration(labelText: 'Port / alias')),
+          TextField(
+            controller: _destinationPort,
+            decoration: const InputDecoration(labelText: 'Port / alias'),
+          ),
           const SizedBox(height: 8),
-          SwitchListTile.adaptive(contentPadding: EdgeInsets.zero, title: const Text('Enabled'), value: _enabled, onChanged: (value) => setState(() => _enabled = value)),
-          SwitchListTile.adaptive(contentPadding: EdgeInsets.zero, title: const Text('Log matches'), value: _logging, onChanged: (value) => setState(() => _logging = value)),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Enabled'),
+            value: _enabled,
+            onChanged: (value) => setState(() => _enabled = value),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Log matches'),
+            value: _logging,
+            onChanged: (value) => setState(() => _logging = value),
+          ),
           const SizedBox(height: 12),
           const Card(
             child: Padding(
               padding: EdgeInsets.all(14),
-              child: Text('Sentinel applies rule changes with firewall savepoint/rollback protection and verifies API reachability before confirming the change.'),
+              child: Text(
+                'Sentinel applies rule changes with firewall savepoint/rollback protection and verifies API reachability before confirming the change.',
+              ),
             ),
           ),
           const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: _busy ? null : _save,
-            icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined),
+            icon: _busy
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_outlined),
             label: Text(editing ? 'Save rule' : 'Add rule'),
           ),
         ],
