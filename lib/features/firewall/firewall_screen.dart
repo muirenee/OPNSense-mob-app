@@ -7,6 +7,7 @@ import '../audit/audit_repository.dart';
 import '../profiles/firewall_profile.dart';
 import 'firewall_models.dart';
 import 'firewall_repository.dart';
+import 'firewall_rule_editor.dart';
 
 class FirewallScreen extends StatefulWidget {
   const FirewallScreen({super.key, required this.profile, required this.credentials});
@@ -55,60 +56,90 @@ class _FirewallScreenState extends State<FirewallScreen> {
     });
   }
 
+  Future<void> _edit([FirewallRuleSummary? rule]) async {
+    Map<String, dynamic> initial = <String, dynamic>{};
+    if (rule != null && rule.uuid.isNotEmpty) {
+      try {
+        initial = await _repository.getRule(rule.uuid);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => FirewallRuleEditor(
+          repository: _repository,
+          audit: _audit,
+          rule: rule,
+          initial: initial,
+        ),
+      ),
+    );
+    if (saved == true) await _refresh();
+  }
+
   Future<void> _toggle(FirewallRuleSummary rule) async {
     final nextEnabled = !rule.enabled;
     final verb = nextEnabled ? 'Enable' : 'Disable';
-    final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text('$verb firewall rule?'),
-            content: Text(
-              '$verb "${rule.description.isEmpty ? rule.uuid : rule.description}"?\n\n'
-              'Netsource Sentinel will create a firewall savepoint, apply the change, verify the management API remains reachable, then confirm the change. If reachability fails, the rollback timer is intentionally left active.',
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-              FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(verb)),
-            ],
-          ),
-        ) ??
-        false;
+    final confirmed = await _confirm(
+      '$verb firewall rule?',
+      '$verb "${rule.description.isEmpty ? rule.uuid : rule.description}"?\n\nSentinel will apply the change using rollback protection.',
+      verb,
+    );
     if (!confirmed || !mounted) return;
 
     setState(() => _busyUuid = rule.uuid);
     try {
       final revision = await _repository.toggleRuleSafely(rule: rule, enabled: nextEnabled);
-      try {
-        await _audit.record(
-          action: '$verb firewall rule',
-          target: rule.description.isEmpty ? rule.uuid : rule.description,
-          result: 'success',
-          details: 'rollback revision $revision',
-        );
-      } catch (_) {
-        // The firewall change succeeded; local audit persistence is secondary.
-      }
+      await _record('$verb firewall rule', rule.description.isEmpty ? rule.uuid : rule.description, 'success', 'rollback revision $revision');
       await _refresh();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rule ${nextEnabled ? 'enabled' : 'disabled'} successfully.')));
     } catch (error) {
-      try {
-        await _audit.record(
-          action: '$verb firewall rule',
-          target: rule.description.isEmpty ? rule.uuid : rule.description,
-          result: 'failed',
-          details: error.toString(),
-        );
-      } catch (_) {
-        // Do not hide the API error if local audit persistence also fails.
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Rule change failed: $error. If apply succeeded but reachability failed, the firewall should keep the rollback timer active.')),
-        );
-      }
+      await _record('$verb firewall rule', rule.description.isEmpty ? rule.uuid : rule.description, 'failed', error.toString());
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rule change failed: $error')));
     } finally {
       if (mounted) setState(() => _busyUuid = null);
     }
+  }
+
+  Future<void> _delete(FirewallRuleSummary rule) async {
+    final confirmed = await _confirm(
+      'Delete firewall rule?',
+      'Delete "${rule.description.isEmpty ? rule.uuid : rule.description}"? Sentinel will apply the deletion with rollback protection.',
+      'Delete',
+    );
+    if (!confirmed) return;
+    setState(() => _busyUuid = rule.uuid);
+    try {
+      final revision = await _repository.deleteRuleSafely(rule);
+      await _record('Delete firewall rule', rule.description.isEmpty ? rule.uuid : rule.description, 'success', 'rollback revision $revision');
+      await _refresh();
+    } catch (error) {
+      await _record('Delete firewall rule', rule.description.isEmpty ? rule.uuid : rule.description, 'failed', error.toString());
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rule delete failed: $error')));
+    } finally {
+      if (mounted) setState(() => _busyUuid = null);
+    }
+  }
+
+  Future<bool> _confirm(String title, String text, String action) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(title),
+            content: Text(text),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(action)),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _record(String action, String target, String result, String details) async {
+    try {
+      await _audit.record(action: action, target: target, result: result, details: details);
+    } catch (_) {}
   }
 
   @override
@@ -128,9 +159,20 @@ class _FirewallScreenState extends State<FirewallScreen> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
             children: [
-              Text('Firewall rules', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 4),
-              Text('${rules.length} Automation rule${rules.length == 1 ? '' : 's'}'),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Firewall rules', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                        Text('${rules.length} Automation rule${rules.length == 1 ? '' : 's'}'),
+                      ],
+                    ),
+                  ),
+                  FilledButton.icon(onPressed: () => _edit(), icon: const Icon(Icons.add), label: const Text('Add')),
+                ],
+              ),
               const SizedBox(height: 14),
               TextField(
                 controller: _searchController,
@@ -152,7 +194,7 @@ class _FirewallScreenState extends State<FirewallScreen> {
               ),
               const SizedBox(height: 12),
               const _NoticeCard(
-                text: 'Only Firewall Automation/MVC rules exposed by the firewall API appear here. Enable/disable is guarded by confirmation, savepoint rollback protection and a local audit trail.',
+                text: 'Only Firewall Automation/MVC rules exposed by the firewall API appear here. Add/Edit/Delete/Enable actions use rollback protection and local audit logging.',
               ),
               const SizedBox(height: 12),
               if (rules.isEmpty)
@@ -162,7 +204,9 @@ class _FirewallScreenState extends State<FirewallScreen> {
                   _RuleCard(
                     rule: rule,
                     busy: _busyUuid == rule.uuid,
+                    onTap: () => _edit(rule),
                     onToggle: rule.uuid.isEmpty || _busyUuid != null ? null : () => _toggle(rule),
+                    onDelete: rule.uuid.isEmpty || _busyUuid != null ? null : () => _delete(rule),
                   ),
                   const SizedBox(height: 10),
                 ],
@@ -175,10 +219,19 @@ class _FirewallScreenState extends State<FirewallScreen> {
 }
 
 class _RuleCard extends StatelessWidget {
-  const _RuleCard({required this.rule, required this.busy, required this.onToggle});
+  const _RuleCard({
+    required this.rule,
+    required this.busy,
+    required this.onTap,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
   final FirewallRuleSummary rule;
   final bool busy;
+  final VoidCallback onTap;
   final VoidCallback? onToggle;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -190,35 +243,46 @@ class _RuleCard extends StatelessWidget {
             : Icons.shield_outlined;
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Icon(actionIcon, size: 20),
-            const SizedBox(width: 8),
-            Expanded(child: Text(rule.description.isEmpty ? 'Unnamed rule' : rule.description, style: const TextStyle(fontWeight: FontWeight.w800))),
-            if (busy)
-              const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-            else
-              Switch.adaptive(value: rule.enabled, onChanged: onToggle == null ? null : (_) => onToggle!()),
-          ]),
-          const SizedBox(height: 8),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            _ChipText(rule.action.isEmpty ? 'Action unknown' : rule.action),
-            if (rule.interfaceName.isNotEmpty) _ChipText(rule.interfaceName),
-            if (rule.direction.isNotEmpty) _ChipText(rule.direction),
-            if (rule.protocol.isNotEmpty) _ChipText(rule.protocol),
-            if (rule.logging) const _ChipText('Logging'),
-          ]),
-          const SizedBox(height: 12),
-          _EndpointRow(label: 'Source', value: _endpoint(rule.source, rule.sourcePort)),
-          const SizedBox(height: 6),
-          _EndpointRow(label: 'Destination', value: _endpoint(rule.destination, rule.destinationPort)),
-          if (rule.uuid.isNotEmpty) ...[
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(actionIcon, size: 20),
+              const SizedBox(width: 8),
+              Expanded(child: Text(rule.description.isEmpty ? 'Unnamed rule' : rule.description, style: const TextStyle(fontWeight: FontWeight.w800))),
+              if (busy)
+                const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+              else ...[
+                Switch.adaptive(value: rule.enabled, onChanged: onToggle == null ? null : (_) => onToggle!()),
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    if (value == 'edit') onTap();
+                    if (value == 'delete') onDelete?.call();
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Edit')),
+                    PopupMenuItem(value: 'delete', child: Text('Delete')),
+                  ],
+                ),
+              ],
+            ]),
             const SizedBox(height: 8),
-            Text('UUID ${rule.uuid}', style: Theme.of(context).textTheme.bodySmall),
-          ],
-        ]),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              _ChipText(rule.action.isEmpty ? 'Action unknown' : rule.action),
+              if (rule.interfaceName.isNotEmpty) _ChipText(rule.interfaceName),
+              if (rule.direction.isNotEmpty) _ChipText(rule.direction),
+              if (rule.protocol.isNotEmpty) _ChipText(rule.protocol),
+              if (rule.logging) const _ChipText('Logging'),
+            ]),
+            const SizedBox(height: 12),
+            _EndpointRow(label: 'Source', value: _endpoint(rule.source, rule.sourcePort)),
+            const SizedBox(height: 6),
+            _EndpointRow(label: 'Destination', value: _endpoint(rule.destination, rule.destinationPort)),
+          ]),
+        ),
       ),
     );
   }
