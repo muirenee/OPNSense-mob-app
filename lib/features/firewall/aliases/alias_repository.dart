@@ -17,6 +17,29 @@ class AliasRepository {
     return parse(raw);
   }
 
+  Future<Map<String, dynamic>> getItem(String uuid) async {
+    final raw = await api.getData(
+      '/api/firewall/alias/get_item/${Uri.encodeComponent(uuid)}',
+    );
+    if (raw is Map) {
+      final map = Map<String, dynamic>.from(raw);
+      final alias = map['alias'];
+      if (alias is Map) return Map<String, dynamic>.from(alias);
+      return map;
+    }
+    return <String, dynamic>{};
+  }
+
+  Future<void> save({String? uuid, required Map<String, dynamic> values}) async {
+    await api.postData(
+      uuid == null || uuid.isEmpty
+          ? '/api/firewall/alias/add_item'
+          : '/api/firewall/alias/set_item/${Uri.encodeComponent(uuid)}',
+      data: {'alias': values},
+    );
+    await api.postData('/api/firewall/alias/reconfigure');
+  }
+
   Future<void> setEnabled(FirewallAliasSummary alias, bool enabled) async {
     if (alias.uuid.isEmpty) throw StateError('Alias UUID is missing.');
     await api.postData('/api/firewall/alias/toggleItem/${Uri.encodeComponent(alias.uuid)}/${enabled ? 1 : 0}');

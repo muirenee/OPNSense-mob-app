@@ -19,10 +19,40 @@ class FirewallRepository {
     return parseRules(raw);
   }
 
-  /// Toggle a Firewall Automation rule using the platform rollback-safe flow:
-  /// savepoint -> toggle -> apply with rollback revision -> connectivity test ->
-  /// cancel rollback. If connectivity fails after apply, cancelRollback is not
-  /// called and the firewall can automatically revert the firewall component.
+  Future<Map<String, dynamic>> getRule(String uuid) async {
+    final raw = await api.getData(
+      '/api/firewall/filter/getRule/${Uri.encodeComponent(uuid)}',
+    );
+    if (raw is Map) {
+      final map = Map<String, dynamic>.from(raw);
+      final rule = map['rule'];
+      if (rule is Map) return Map<String, dynamic>.from(rule);
+      return map;
+    }
+    return <String, dynamic>{};
+  }
+
+  Future<String> saveRuleSafely({
+    String? uuid,
+    required Map<String, dynamic> values,
+  }) async {
+    return _changeSafely(() async {
+      return api.postData(
+        uuid == null || uuid.isEmpty
+            ? '/api/firewall/filter/addRule'
+            : '/api/firewall/filter/setRule/${Uri.encodeComponent(uuid)}',
+        data: {'rule': values},
+      );
+    });
+  }
+
+  Future<String> deleteRuleSafely(FirewallRuleSummary rule) async {
+    if (rule.uuid.isEmpty) throw StateError('Firewall rule UUID is missing.');
+    return _changeSafely(() => api.postData(
+          '/api/firewall/filter/delRule/${Uri.encodeComponent(rule.uuid)}',
+        ));
+  }
+
   Future<String> toggleRuleSafely({
     required FirewallRuleSummary rule,
     required bool enabled,
@@ -30,23 +60,23 @@ class FirewallRepository {
     if (rule.uuid.isEmpty) {
       throw StateError('The selected rule does not have a UUID.');
     }
+    return _changeSafely(() => api.postData(
+          '/api/firewall/filter/toggleRule/${Uri.encodeComponent(rule.uuid)}/${enabled ? 1 : 0}',
+        ));
+  }
 
+  Future<String> _changeSafely(Future<dynamic> Function() change) async {
     final savepoint = await api.postJson('/api/firewall/filter/savepoint');
     final revision = _first(savepoint, const ['revision', 'timestamp', 'id']);
     if (revision.isEmpty) {
       throw StateError('The firewall did not return a rollback revision.');
     }
 
-    await api.postData(
-      '/api/firewall/filter/toggleRule/${Uri.encodeComponent(rule.uuid)}/${enabled ? 1 : 0}',
-    );
+    await change();
     await api.postData(
       '/api/firewall/filter/apply/${Uri.encodeComponent(revision)}',
     );
 
-    // Confirm that the same firewall API privilege used for the change is
-    // still reachable before making the new rule state permanent. A failed
-    // check intentionally leaves the rollback timer active.
     await api.getData(
       '/api/firewall/filter/searchRule',
       queryParameters: const {'current': 1, 'rowCount': 1},
