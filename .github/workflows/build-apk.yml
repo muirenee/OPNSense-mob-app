@@ -46,7 +46,7 @@ jobs:
           flutter create --platforms=android,ios --org com.netsource .
           rm -f test/widget_test.dart
 
-      - name: Install normalized CI workflow
+      - name: Install normalized CI workflow template
         shell: bash
         run: |
           set -euo pipefail
@@ -133,8 +133,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp -a /tmp/opn-normalized/. .
+          rsync -a --delete --exclude='.git/' --exclude='.github/' /tmp/opn-normalized/ ./
           git status --short
 
       - name: Commit normalized repository
