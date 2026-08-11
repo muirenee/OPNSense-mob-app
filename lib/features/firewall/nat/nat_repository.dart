@@ -1,4 +1,5 @@
 import '../../../core/api/opnsense_api_client.dart';
+import '../../../core/api/opnsense_exception.dart';
 import 'nat_models.dart';
 
 class NatRepository {
@@ -13,6 +14,52 @@ class NatRepository {
   Future<List<NatRuleSummary>> loadOutbound() async {
     final raw = await api.getData('/api/firewall/source_nat/searchRule', queryParameters: const {'current': 1, 'rowCount': 300});
     return parse(raw, kind: NatRuleKind.outbound);
+  }
+
+  Future<String> setEnabledSafely(NatRuleSummary rule, bool enabled) async {
+    return _changeSafely(
+      rule: rule,
+      change: (controller) => api.postData(
+        '/api/firewall/$controller/toggleRule/${Uri.encodeComponent(rule.uuid)}/${enabled ? 0 : 1}',
+      ),
+    );
+  }
+
+  Future<String> deleteSafely(NatRuleSummary rule) async {
+    return _changeSafely(
+      rule: rule,
+      change: (controller) => api.postData(
+        '/api/firewall/$controller/delRule/${Uri.encodeComponent(rule.uuid)}',
+      ),
+    );
+  }
+
+  Future<String> _changeSafely({
+    required NatRuleSummary rule,
+    required Future<dynamic> Function(String controller) change,
+  }) async {
+    if (rule.uuid.isEmpty) throw StateError('NAT rule UUID is missing.');
+    final controller = rule.kind == NatRuleKind.portForward ? 'd_nat' : 'source_nat';
+
+    final savepoint = await api.postJson('/api/firewall/$controller/savepoint');
+    final revision = _first(savepoint, const ['revision', 'timestamp', 'id']);
+    if (revision.isEmpty) throw StateError('The firewall did not return a rollback revision.');
+
+    await change(controller);
+    await api.postData('/api/firewall/$controller/apply/${Uri.encodeComponent(revision)}');
+
+    await api.getData(
+      '/api/firewall/$controller/searchRule',
+      queryParameters: const {'current': 1, 'rowCount': 1},
+    );
+
+    try {
+      await api.postData('/api/firewall/$controller/cancelRollback/${Uri.encodeComponent(revision)}');
+    } on OpnSenseException catch (error) {
+      if (error.statusCode != 404) rethrow;
+      await api.postData('/api/firewall/$controller/cancel_rollback/${Uri.encodeComponent(revision)}');
+    }
+    return revision;
   }
 
   static List<NatRuleSummary> parse(dynamic raw, {required NatRuleKind kind}) {
