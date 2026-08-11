@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/api/opnsense_api_client.dart';
+import '../../audit/audit_repository.dart';
 import '../../profiles/firewall_profile.dart';
 import 'nat_models.dart';
 import 'nat_repository.dart';
@@ -9,19 +10,23 @@ class NatScreen extends StatefulWidget {
   const NatScreen({super.key, required this.profile, required this.credentials});
   final FirewallProfile profile;
   final FirewallCredentials credentials;
+
   @override
   State<NatScreen> createState() => _NatScreenState();
 }
 
 class _NatScreenState extends State<NatScreen> {
   late final NatRepository _repository;
+  late final AuditRepository _audit;
   late Future<List<NatRuleSummary>> _portForwards;
   late Future<List<NatRuleSummary>> _outbound;
+  String? _busyUuid;
 
   @override
   void initState() {
     super.initState();
     _repository = NatRepository(OpnSenseApiClient(profile: widget.profile, credentials: widget.credentials));
+    _audit = AuditRepository(profileId: widget.profile.id);
     _reload();
   }
 
@@ -35,25 +40,127 @@ class _NatScreenState extends State<NatScreen> {
     await Future.wait([_portForwards, _outbound]);
   }
 
+  Future<void> _toggle(NatRuleSummary rule) async {
+    final enable = !rule.enabled;
+    final verb = enable ? 'Enable' : 'Disable';
+    final ok = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('$verb NAT rule?'),
+            content: Text(
+              '$verb "${rule.description.isEmpty ? rule.uuid : rule.description}"?\n\n'
+              'Sentinel will create a rollback savepoint, apply the change, verify API reachability, and only then confirm it.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(verb)),
+            ],
+          ),
+        ) ??
+        false;
+    if (!ok) return;
+
+    setState(() => _busyUuid = rule.uuid);
+    try {
+      final revision = await _repository.setEnabledSafely(rule, enable);
+      await _audit.record(action: '$verb NAT rule', target: rule.description.isEmpty ? rule.uuid : rule.description, result: 'success', details: 'rollback revision $revision');
+      await _refresh();
+    } catch (error) {
+      await _audit.record(action: '$verb NAT rule', target: rule.description.isEmpty ? rule.uuid : rule.description, result: 'failed', details: error.toString());
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('NAT change failed: $error')));
+    } finally {
+      if (mounted) setState(() => _busyUuid = null);
+    }
+  }
+
+  Future<void> _delete(NatRuleSummary rule) async {
+    final ok = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Delete NAT rule?'),
+            content: Text(
+              'Delete "${rule.description.isEmpty ? rule.uuid : rule.description}"?\n\n'
+              'Published services or outbound connectivity may be affected. Sentinel will use rollback protection while applying the deletion.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+            ],
+          ),
+        ) ??
+        false;
+    if (!ok) return;
+
+    setState(() => _busyUuid = rule.uuid);
+    try {
+      final revision = await _repository.deleteSafely(rule);
+      await _audit.record(action: 'Delete NAT rule', target: rule.description.isEmpty ? rule.uuid : rule.description, result: 'success', details: 'rollback revision $revision');
+      await _refresh();
+    } catch (error) {
+      await _audit.record(action: 'Delete NAT rule', target: rule.description.isEmpty ? rule.uuid : rule.description, result: 'failed', details: error.toString());
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('NAT delete failed: $error')));
+    } finally {
+      if (mounted) setState(() => _busyUuid = null);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 2,
-      child: Column(children: [
-        const Material(child: TabBar(tabs: [Tab(text: 'Port Forward'), Tab(text: 'Outbound')])),
-        Expanded(child: TabBarView(children: [
-          _NatList(future: _portForwards, onRefresh: _refresh, emptyText: 'No port-forward rules returned.'),
-          _NatList(future: _outbound, onRefresh: _refresh, emptyText: 'No outbound NAT rules returned.'),
-        ])),
-      ]),
+      child: Column(
+        children: [
+          const Material(
+            child: TabBar(
+              tabs: [
+                Tab(text: 'Port Forward', icon: Icon(Icons.call_made_outlined)),
+                Tab(text: 'Outbound', icon: Icon(Icons.call_received_outlined)),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _NatList(
+                  future: _portForwards,
+                  onRefresh: _refresh,
+                  onToggle: _toggle,
+                  onDelete: _delete,
+                  busyUuid: _busyUuid,
+                  emptyText: 'No port-forward rules returned.',
+                ),
+                _NatList(
+                  future: _outbound,
+                  onRefresh: _refresh,
+                  onToggle: _toggle,
+                  onDelete: _delete,
+                  busyUuid: _busyUuid,
+                  emptyText: 'No outbound NAT rules returned.',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _NatList extends StatelessWidget {
-  const _NatList({required this.future, required this.onRefresh, required this.emptyText});
+  const _NatList({
+    required this.future,
+    required this.onRefresh,
+    required this.onToggle,
+    required this.onDelete,
+    required this.busyUuid,
+    required this.emptyText,
+  });
+
   final Future<List<NatRuleSummary>> future;
   final Future<void> Function() onRefresh;
+  final Future<void> Function(NatRuleSummary) onToggle;
+  final Future<void> Function(NatRuleSummary) onDelete;
+  final String? busyUuid;
   final String emptyText;
 
   @override
@@ -68,35 +175,91 @@ class _NatList extends StatelessWidget {
           onRefresh: onRefresh,
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
             children: [
+              Row(
+                children: [
+                  Expanded(child: Text('NAT rules', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+                  Chip(label: Text('${rules.length} rules')),
+                ],
+              ),
+              const SizedBox(height: 12),
               for (final rule in rules) ...[
-                Card(child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Row(children: [
-                      Expanded(child: Text(rule.description.isEmpty ? 'Unnamed NAT rule' : rule.description, style: const TextStyle(fontWeight: FontWeight.w800))),
-                      Text(rule.enabled ? 'Enabled' : 'Disabled'),
-                    ]),
-                    const SizedBox(height: 8),
-                    Text([rule.interfaceName, rule.protocol].where((e) => e.isNotEmpty).join(' · ')),
-                    const SizedBox(height: 8),
-                    Text('Source: ${_endpoint(rule.source, rule.sourcePort)}'),
-                    Text('Destination: ${_endpoint(rule.destination, rule.destinationPort)}'),
-                    if (rule.target.isNotEmpty || rule.targetPort.isNotEmpty) Text('Translation: ${_endpoint(rule.target, rule.targetPort)}'),
-                  ]),
-                )),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(shape: BoxShape.circle, color: rule.enabled ? Colors.green : Theme.of(context).colorScheme.outline),
+                            ),
+                            const SizedBox(width: 9),
+                            Expanded(child: Text(rule.description.isEmpty ? 'Unnamed NAT rule' : rule.description, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16))),
+                            if (busyUuid == rule.uuid)
+                              const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                            else
+                              PopupMenuButton<String>(
+                                onSelected: (value) {
+                                  if (value == 'toggle') onToggle(rule);
+                                  if (value == 'delete') onDelete(rule);
+                                },
+                                itemBuilder: (_) => [
+                                  PopupMenuItem(value: 'toggle', child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(rule.enabled ? Icons.toggle_off_outlined : Icons.toggle_on_outlined), title: Text(rule.enabled ? 'Disable' : 'Enable'))),
+                                  const PopupMenuItem(value: 'delete', child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.delete_outline), title: Text('Delete'))),
+                                ],
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (rule.interfaceName.isNotEmpty) Chip(label: Text(rule.interfaceName)),
+                            if (rule.protocol.isNotEmpty) Chip(label: Text(rule.protocol)),
+                            Chip(label: Text(rule.enabled ? 'Enabled' : 'Disabled')),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        _EndpointRow(label: 'Source', value: _endpoint(rule.source, rule.sourcePort)),
+                        _EndpointRow(label: 'Destination', value: _endpoint(rule.destination, rule.destinationPort)),
+                        if (rule.target.isNotEmpty || rule.targetPort.isNotEmpty) _EndpointRow(label: 'Translation', value: _endpoint(rule.target, rule.targetPort)),
+                      ],
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 8),
               ],
               if (rules.isEmpty) Card(child: Padding(padding: const EdgeInsets.all(20), child: Text(emptyText))),
-              const SizedBox(height: 8),
-              Text('NAT is read-only in v0.3. Editing will use the same rollback-safe transaction approach as firewall-rule changes.', style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
         );
       },
     );
   }
+}
+
+class _EndpointRow extends StatelessWidget {
+  const _EndpointRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(width: 96, child: Text(label, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant))),
+            Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w600))),
+          ],
+        ),
+      );
 }
 
 String _endpoint(String address, String port) {
