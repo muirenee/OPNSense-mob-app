@@ -78,25 +78,26 @@ void main() {
     expect(settings['protocol'], 'icmp');
   });
 
-  test('packet capture payload nests settings and encodes interfaces', () {
+  test('packet capture payload uses official packetcapture model key', () {
     final payload = DiagnosticsRepository.buildPacketCapturePayload(
       interfaces: {'lan', 'wan'},
       family: 'ip',
       protocol: 'tcp',
       count: 25,
     );
-    final capture = payload['packet_capture'] as Map<String, dynamic>;
+    final capture = payload['packetcapture'] as Map<String, dynamic>;
     final settings = capture['settings'] as Map<String, dynamic>;
+    expect(payload.containsKey('packet_capture'), isFalse);
     expect(settings['interface'], 'lan,wan');
     expect(settings['fam'], 'ip');
     expect(settings['protocol'], 'tcp');
     expect(settings['count'], '25');
   });
 
-  test('extracts option settings from nested diagnostic model', () {
+  test('extracts option settings from official packetcapture model', () {
     final settings = DiagnosticsRepository.extractSettings(
       {
-        'packet_capture': {
+        'packetcapture': {
           'settings': {
             'interface': {
               'wan': {'value': 'WAN', 'selected': 1},
@@ -104,12 +105,30 @@ void main() {
           },
         },
       },
-      modelKey: 'packet_capture',
+      modelKey: 'packetcapture',
     );
     final choices = DiagnosticsRepository.settingChoices(settings, 'interface');
     expect(choices, hasLength(1));
     expect(choices.first.value, 'wan');
     expect(choices.first.label, 'WAN');
+  });
+
+  test('packet capture settings tolerate legacy underscored response key', () {
+    final settings = DiagnosticsRepository.extractSettings(
+      {
+        'packet_capture': {
+          'settings': {
+            'interface': {
+              'lan': {'value': 'LAN', 'selected': 1},
+            },
+          },
+        },
+      },
+      modelKey: 'packetcapture',
+    );
+    final choices = DiagnosticsRepository.settingChoices(settings, 'interface');
+    expect(choices.single.value, 'lan');
+    expect(choices.single.label, 'LAN');
   });
 
   test('parses ping statistics into readable output', () {
