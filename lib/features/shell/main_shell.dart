@@ -70,10 +70,7 @@ class _MainShellState extends State<MainShell> {
         profile: widget.profile,
         credentials: widget.credentials,
       ),
-      VpnScreen(
-        profile: widget.profile,
-        credentials: widget.credentials,
-      ),
+      VpnScreen(profile: widget.profile, credentials: widget.credentials),
       _MoreScreen(
         repository: widget.repository,
         profile: widget.profile,
@@ -173,12 +170,17 @@ class _MoreScreen extends StatelessWidget {
       children: [
         Text(
           'Management',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 4),
         Text(
           'System, access and portal administration',
-          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
         const SizedBox(height: 16),
         Card(
@@ -187,11 +189,14 @@ class _MoreScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.manage_accounts_outlined),
                 title: const Text('Users & Groups'),
-                subtitle: const Text('Create, edit and manage firewall accounts'),
+                subtitle: const Text('Accounts, memberships and access rights'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _open(
                   context,
-                  UserManagementScreen(profile: profile, credentials: credentials),
+                  UserManagementScreen(
+                    profile: profile,
+                    credentials: credentials,
+                  ),
                 ),
               ),
               const Divider(height: 1),
@@ -202,7 +207,10 @@ class _MoreScreen extends StatelessWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _open(
                   context,
-                  CaptivePortalScreen(profile: profile, credentials: credentials),
+                  CaptivePortalScreen(
+                    profile: profile,
+                    credentials: credentials,
+                  ),
                 ),
               ),
               const Divider(height: 1),
@@ -213,7 +221,10 @@ class _MoreScreen extends StatelessWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _open(
                   context,
-                  ProfileSetupScreen(repository: repository, initialProfile: profile),
+                  ProfileSetupScreen(
+                    repository: repository,
+                    initialProfile: profile,
+                  ),
                 ),
               ),
               const Divider(height: 1),
@@ -242,11 +253,16 @@ class _MoreScreen extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.troubleshoot_outlined),
                 title: const Text('Diagnostics'),
-                subtitle: const Text('Ping, traceroute, DNS, routes and packet capture'),
+                subtitle: const Text(
+                  'Ping, traceroute, DNS, routes and packet capture',
+                ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _open(
                   context,
-                  DiagnosticsScreen(profile: profile, credentials: credentials),
+                  DiagnosticsScreen(
+                    profile: profile,
+                    credentials: credentials,
+                  ),
                 ),
               ),
               const Divider(height: 1),
@@ -257,14 +273,19 @@ class _MoreScreen extends StatelessWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _open(
                   context,
-                  CapabilitiesScreen(profile: profile, credentials: credentials),
+                  CapabilitiesScreen(
+                    profile: profile,
+                    credentials: credentials,
+                  ),
                 ),
               ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.history_outlined),
                 title: const Text('App audit trail'),
-                subtitle: const Text('Review management changes made from this app'),
+                subtitle: const Text(
+                  'Review management changes made from this app',
+                ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _open(context, AuditScreen(profileId: profile.id)),
               ),
@@ -283,9 +304,18 @@ class _MoreScreen extends StatelessWidget {
                   value: themeMode,
                   underline: const SizedBox.shrink(),
                   items: const [
-                    DropdownMenuItem(value: ThemeMode.system, child: Text('System')),
-                    DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
-                    DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
+                    DropdownMenuItem(
+                      value: ThemeMode.system,
+                      child: Text('System'),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.light,
+                      child: Text('Light'),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.dark,
+                      child: Text('Dark'),
+                    ),
                   ],
                   onChanged: (value) {
                     if (value != null) onThemeModeChanged(value);
@@ -307,8 +337,10 @@ class _MoreScreen extends StatelessWidget {
         const Card(
           child: ListTile(
             leading: Icon(Icons.info_outline),
-            title: Text('Netsource Sentinel · Version 0.6.0'),
-            subtitle: Text('Users · Captive Portal · expanded Add/Edit · stable signing'),
+            title: Text('Netsource Sentinel · Version 0.6.1'),
+            subtitle: Text(
+              'Complete access assignment · portal selectors · diagnostics fixes',
+            ),
           ),
         ),
       ],

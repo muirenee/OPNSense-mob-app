@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api/api_choice.dart';
 import '../../core/api/opnsense_api_client.dart';
+import '../../core/widgets/api_select_fields.dart';
 import '../profiles/firewall_profile.dart';
 import 'diagnostics_models.dart';
 import 'diagnostics_repository.dart';
@@ -76,12 +78,15 @@ class _PingTool extends StatefulWidget {
 
 class _PingToolState extends State<_PingTool> {
   final _host = TextEditingController(text: '1.1.1.1');
+  final _source = TextEditingController();
   bool _busy = false;
   String _result = '';
+  String _family = 'ip';
 
   @override
   void dispose() {
     _host.dispose();
+    _source.dispose();
     super.dispose();
   }
 
@@ -95,7 +100,11 @@ class _PingToolState extends State<_PingTool> {
     });
 
     try {
-      final job = await widget.repository.runPing(host);
+      final job = await widget.repository.runPing(
+        host,
+        family: _family,
+        sourceAddress: _source.text.trim(),
+      );
       if (!mounted) return;
       setState(() {
         _result = [
@@ -119,7 +128,7 @@ class _PingToolState extends State<_PingTool> {
         const _ToolIntro(
           icon: Icons.network_ping,
           title: 'Ping',
-          text: 'Run a short ICMP reachability test from the firewall.',
+          text: 'Run a short reachability test from the firewall.',
         ),
         const SizedBox(height: 14),
         TextField(
@@ -133,6 +142,31 @@ class _PingToolState extends State<_PingTool> {
           onSubmitted: (_) {
             if (!_busy) _run();
           },
+        ),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(
+          initialValue: _family,
+          decoration: const InputDecoration(
+            labelText: 'Address family',
+            prefixIcon: Icon(Icons.hub_outlined),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'ip', child: Text('IPv4')),
+            DropdownMenuItem(value: 'ip6', child: Text('IPv6')),
+          ],
+          onChanged: _busy
+              ? null
+              : (value) {
+                  if (value != null) setState(() => _family = value);
+                },
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _source,
+          decoration: const InputDecoration(
+            labelText: 'Source address (optional)',
+            prefixIcon: Icon(Icons.call_made_outlined),
+          ),
         ),
         const SizedBox(height: 12),
         FilledButton.icon(
@@ -163,13 +197,16 @@ class _TracerouteTool extends StatefulWidget {
 
 class _TracerouteToolState extends State<_TracerouteTool> {
   final _host = TextEditingController(text: '1.1.1.1');
+  final _source = TextEditingController();
   bool _busy = false;
   String _result = '';
   String _protocol = 'udp';
+  String _family = 'inet';
 
   @override
   void dispose() {
     _host.dispose();
+    _source.dispose();
     super.dispose();
   }
 
@@ -186,6 +223,8 @@ class _TracerouteToolState extends State<_TracerouteTool> {
       final result = await widget.repository.runTraceroute(
         host,
         protocol: _protocol,
+        family: _family,
+        sourceAddress: _source.text.trim(),
       );
       if (!mounted) return;
       setState(() => _result = result);
@@ -219,21 +258,50 @@ class _TracerouteToolState extends State<_TracerouteTool> {
           },
         ),
         const SizedBox(height: 10),
-        DropdownButtonFormField<String>(
-          value: _protocol,
-          decoration: const InputDecoration(
-            labelText: 'Protocol',
-            prefixIcon: Icon(Icons.route_outlined),
-          ),
-          items: const [
-            DropdownMenuItem(value: 'udp', child: Text('UDP (default)')),
-            DropdownMenuItem(value: 'icmp', child: Text('ICMP')),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                initialValue: _family,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Family'),
+                items: const [
+                  DropdownMenuItem(value: 'inet', child: Text('IPv4')),
+                  DropdownMenuItem(value: 'inet6', child: Text('IPv6')),
+                ],
+                onChanged: _busy
+                    ? null
+                    : (value) {
+                        if (value != null) setState(() => _family = value);
+                      },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                initialValue: _protocol,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Protocol'),
+                items: const [
+                  DropdownMenuItem(value: 'udp', child: Text('UDP')),
+                  DropdownMenuItem(value: 'icmp', child: Text('ICMP')),
+                ],
+                onChanged: _busy
+                    ? null
+                    : (value) {
+                        if (value != null) setState(() => _protocol = value);
+                      },
+              ),
+            ),
           ],
-          onChanged: _busy
-              ? null
-              : (value) {
-                  if (value != null) setState(() => _protocol = value);
-                },
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _source,
+          decoration: const InputDecoration(
+            labelText: 'Source address (optional)',
+            prefixIcon: Icon(Icons.call_made_outlined),
+          ),
         ),
         const SizedBox(height: 12),
         FilledButton.icon(
@@ -346,8 +414,7 @@ class _RoutesToolState extends State<_RoutesTool> {
     return FutureBuilder<List<RouteEntry>>(
       future: _future,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            !snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
@@ -355,10 +422,7 @@ class _RoutesToolState extends State<_RoutesTool> {
             children: [
               Text('Routing table unavailable: ${snapshot.error}'),
               const SizedBox(height: 12),
-              FilledButton(
-                onPressed: _refresh,
-                child: const Text('Retry'),
-              ),
+              FilledButton(onPressed: _refresh, child: const Text('Retry')),
             ],
           );
         }
@@ -408,8 +472,7 @@ class _RoutesToolState extends State<_RoutesTool> {
                                     'via ${routes[i].gateway}',
                                   if (routes[i].interfaceName.isNotEmpty)
                                     routes[i].interfaceName,
-                                  if (routes[i].flags.isNotEmpty)
-                                    routes[i].flags,
+                                  if (routes[i].flags.isNotEmpty) routes[i].flags,
                                 ].join(' · '),
                               ),
                             ),
@@ -435,54 +498,151 @@ class _PacketCaptureTool extends StatefulWidget {
 }
 
 class _PacketCaptureToolState extends State<_PacketCaptureTool> {
-  final _interface = TextEditingController(text: 'wan');
   final _host = TextEditingController();
   final _port = TextEditingController();
+  final _count = TextEditingController(text: '100');
   bool _busy = false;
-  late Future<List<PacketCaptureJob>> _future;
+  bool _settingsLoading = true;
   String _message = '';
+  Object? _settingsError;
+  List<ApiChoice> _interfaceChoices = const [];
+  List<ApiChoice> _familyChoices = const [];
+  List<ApiChoice> _protocolChoices = const [];
+  Set<String> _interfaces = <String>{};
+  String? _family = 'any';
+  String? _protocol = 'any';
+  bool _promiscuous = false;
+  late Future<List<PacketCaptureJob>> _future;
 
   @override
   void initState() {
     super.initState();
     _future = widget.repository.loadPacketCaptureJobs();
+    _loadSettings();
   }
 
   @override
   void dispose() {
-    _interface.dispose();
     _host.dispose();
     _port.dispose();
+    _count.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSettings() async {
+    if (mounted) {
+      setState(() {
+        _settingsLoading = true;
+        _settingsError = null;
+      });
+    }
+    try {
+      final settings = await widget.repository.loadPacketCaptureSettings();
+      final interfaces = DiagnosticsRepository.settingChoices(
+        settings,
+        'interface',
+      );
+      final families = DiagnosticsRepository.settingChoices(settings, 'fam');
+      final protocols = DiagnosticsRepository.settingChoices(
+        settings,
+        'protocol',
+      );
+      final selectedInterfaces = DiagnosticsRepository.selectedSettingChoices(
+        settings,
+        'interface',
+      );
+      final selectedFamily = DiagnosticsRepository.selectedSettingChoice(
+        settings,
+        'fam',
+      );
+      final selectedProtocol = DiagnosticsRepository.selectedSettingChoice(
+        settings,
+        'protocol',
+      );
+      if (!mounted) return;
+      setState(() {
+        _interfaceChoices = interfaces;
+        _familyChoices = families.isEmpty
+            ? const [
+                ApiChoice(value: 'any', label: 'Any'),
+                ApiChoice(value: 'ip', label: 'IPv4'),
+                ApiChoice(value: 'ip6', label: 'IPv6'),
+                ApiChoice(value: 'arp', label: 'ARP'),
+              ]
+            : families;
+        _protocolChoices = protocols.isEmpty
+            ? const [
+                ApiChoice(value: 'any', label: 'Any'),
+                ApiChoice(value: 'tcp', label: 'TCP'),
+                ApiChoice(value: 'udp', label: 'UDP'),
+                ApiChoice(value: 'icmp', label: 'ICMP'),
+              ]
+            : protocols;
+        _interfaces = selectedInterfaces;
+        _family = selectedFamily ?? 'any';
+        _protocol = selectedProtocol ?? 'any';
+        _settingsLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _settingsError = error;
+        _settingsLoading = false;
+        _familyChoices = const [
+          ApiChoice(value: 'any', label: 'Any'),
+          ApiChoice(value: 'ip', label: 'IPv4'),
+          ApiChoice(value: 'ip6', label: 'IPv6'),
+          ApiChoice(value: 'arp', label: 'ARP'),
+        ];
+        _protocolChoices = const [
+          ApiChoice(value: 'any', label: 'Any'),
+          ApiChoice(value: 'tcp', label: 'TCP'),
+          ApiChoice(value: 'udp', label: 'UDP'),
+          ApiChoice(value: 'icmp', label: 'ICMP'),
+        ];
+      });
+    }
   }
 
   Future<void> _refresh() async {
     setState(() => _future = widget.repository.loadPacketCaptureJobs());
-    await _future;
+    await Future.wait<dynamic>([_future, _loadSettings()]);
   }
 
   Future<void> _start() async {
-    if (_interface.text.trim().isEmpty) return;
+    if (_interfaces.isEmpty) {
+      _setMessage('Select at least one interface before starting capture.');
+      return;
+    }
+    final count = int.tryParse(_count.text.trim()) ?? 100;
+    if (count < 1) {
+      _setMessage('Packet count must be at least 1.');
+      return;
+    }
     setState(() => _busy = true);
     try {
       final job = await widget.repository.createPacketCapture(
-        interfaceName: _interface.text.trim(),
+        interfaces: _interfaces,
+        family: _family ?? 'any',
+        protocol: _protocol ?? 'any',
         host: _host.text.trim(),
         port: _port.text.trim(),
+        count: count,
+        promiscuous: _promiscuous,
       );
       if (!mounted) return;
-      setState(() {
-        _message = job.id.isEmpty
-            ? 'Capture response: ${job.status}'
-            : 'Capture started: ${job.id}';
-      });
-      await _refresh();
+      setState(() => _message = 'Capture started: ${job.id}');
+      await _refreshJobsOnly();
     } catch (error) {
-      if (!mounted) return;
-      setState(() => _message = 'Capture failed: $error');
+      _setMessage('Capture failed: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _refreshJobsOnly() async {
+    setState(() => _future = widget.repository.loadPacketCaptureJobs());
+    await _future;
   }
 
   Future<void> _stop(PacketCaptureJob job) async {
@@ -490,12 +650,24 @@ class _PacketCaptureToolState extends State<_PacketCaptureTool> {
     setState(() => _busy = true);
     try {
       await widget.repository.stopPacketCapture(job.id);
-      if (!mounted) return;
-      setState(() => _message = 'Capture ${job.id} stopped.');
-      await _refresh();
+      _setMessage('Capture ${job.id} stopped.');
+      await _refreshJobsOnly();
     } catch (error) {
-      if (!mounted) return;
-      setState(() => _message = 'Stop failed: $error');
+      _setMessage('Stop failed: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _remove(PacketCaptureJob job) async {
+    if (job.id.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await widget.repository.removePacketCapture(job.id);
+      _setMessage('Capture ${job.id} removed.');
+      await _refreshJobsOnly();
+    } catch (error) {
+      _setMessage('Remove failed: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -506,16 +678,16 @@ class _PacketCaptureToolState extends State<_PacketCaptureTool> {
     setState(() => _busy = true);
     try {
       final file = await widget.repository.downloadPacketCapture(job.id);
-      if (!mounted) return;
-      setState(() {
-        _message = 'PCAP saved to app temporary storage:\n${file.path}';
-      });
+      _setMessage('PCAP saved to app temporary storage:\n${file.path}');
     } catch (error) {
-      if (!mounted) return;
-      setState(() => _message = 'PCAP download failed: $error');
+      _setMessage('PCAP download failed: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _setMessage(String message) {
+    if (mounted) setState(() => _message = message);
   }
 
   @override
@@ -524,120 +696,183 @@ class _PacketCaptureToolState extends State<_PacketCaptureTool> {
       future: _future,
       builder: (context, snapshot) {
         final jobs = snapshot.data ?? const <PacketCaptureJob>[];
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            TextField(
-              controller: _interface,
-              decoration: const InputDecoration(
-                labelText: 'Interface (for example wan, lan, igb0)',
-                prefixIcon: Icon(Icons.settings_ethernet),
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
+              const _ToolIntro(
+                icon: Icons.manage_search_outlined,
+                title: 'Packet Capture',
+                text: 'Capture traffic using the interfaces and protocol values exposed by the firewall API.',
               ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _host,
-              decoration: const InputDecoration(
-                labelText: 'Host filter (optional)',
-                prefixIcon: Icon(Icons.filter_alt_outlined),
+              const SizedBox(height: 14),
+              if (_settingsLoading) const LinearProgressIndicator(),
+              if (_settingsError != null)
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.warning_amber_outlined),
+                    title: const Text('Capture options could not be loaded'),
+                    subtitle: Text(_settingsError.toString()),
+                    trailing: IconButton(
+                      tooltip: 'Retry',
+                      onPressed: _loadSettings,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  ),
+                ),
+              ApiMultiSelectField(
+                label: 'Interfaces',
+                choices: _interfaceChoices,
+                selected: _interfaces,
+                prefixIcon: Icons.settings_ethernet,
+                helperText: 'Select one or more interfaces returned by the firewall.',
+                searchHint: 'Search interfaces',
+                enabled: !_settingsLoading && _interfaceChoices.isNotEmpty,
+                onChanged: (values) => setState(() => _interfaces = values),
               ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _port,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Port filter (optional)',
-                prefixIcon: Icon(Icons.numbers),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: ApiSingleSelectField(
+                      label: 'Family',
+                      choices: _familyChoices,
+                      value: _family,
+                      allowEmpty: false,
+                      onChanged: (value) => setState(() => _family = value),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ApiSingleSelectField(
+                      label: 'Protocol',
+                      choices: _protocolChoices,
+                      value: _protocol,
+                      allowEmpty: false,
+                      onChanged: (value) => setState(() => _protocol = value),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _busy ? null : _start,
-              icon: const Icon(Icons.fiber_manual_record),
-              label: Text(_busy ? 'Working…' : 'Start capture'),
-            ),
-            if (_message.isNotEmpty) _OutputCard(text: _message),
-            const SizedBox(height: 12),
-            Text(
-              'Capture jobs',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                !snapshot.hasData)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: CircularProgressIndicator(),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _host,
+                decoration: const InputDecoration(
+                  labelText: 'Host filter (optional)',
+                  prefixIcon: Icon(Icons.filter_alt_outlined),
                 ),
-              )
-            else if (snapshot.hasError)
-              Card(
-                child: ListTile(
-                  title: const Text('Capture jobs unavailable'),
-                  subtitle: Text(snapshot.error.toString()),
-                ),
-              )
-            else if (jobs.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Text('No packet capture jobs returned.'),
-                ),
-              )
-            else
-              Card(
-                child: Column(
-                  children: [
-                    for (var i = 0; i < jobs.length; i++) ...[
-                      if (i > 0) const Divider(height: 1),
-                      ListTile(
-                        title: Text(
-                          jobs[i].description.isEmpty
-                              ? jobs[i].id
-                              : jobs[i].description,
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _port,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Port filter'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _count,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Packet count'),
+                    ),
+                  ),
+                ],
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Promiscuous mode'),
+                value: _promiscuous,
+                onChanged: _busy
+                    ? null
+                    : (value) => setState(() => _promiscuous = value),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: _busy || _settingsLoading ? null : _start,
+                icon: const Icon(Icons.fiber_manual_record),
+                label: Text(_busy ? 'Working…' : 'Start capture'),
+              ),
+              if (_message.isNotEmpty) _OutputCard(text: _message),
+              const SizedBox(height: 14),
+              Text(
+                'Capture jobs',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              else if (snapshot.hasError)
+                Card(
+                  child: ListTile(
+                    title: const Text('Capture jobs unavailable'),
+                    subtitle: Text(snapshot.error.toString()),
+                  ),
+                )
+              else if (jobs.isEmpty)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Text('No packet capture jobs returned.'),
+                  ),
+                )
+              else
+                Card(
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < jobs.length; i++) ...[
+                        if (i > 0) const Divider(height: 1),
+                        ListTile(
+                          title: Text(
+                            jobs[i].description.isEmpty
+                                ? jobs[i].id
+                                : jobs[i].description,
+                          ),
+                          subtitle: Text(
+                            [
+                              jobs[i].status,
+                              if (jobs[i].interfaceName.isNotEmpty)
+                                jobs[i].interfaceName,
+                              if (jobs[i].count.isNotEmpty)
+                                '${jobs[i].count} packets',
+                            ].where((item) => item.isNotEmpty).join(' · '),
+                          ),
+                          trailing: PopupMenuButton<String>(
+                            enabled: !_busy && jobs[i].id.isNotEmpty,
+                            onSelected: (value) {
+                              if (value == 'stop') _stop(jobs[i]);
+                              if (value == 'download') _download(jobs[i]);
+                              if (value == 'remove') _remove(jobs[i]);
+                            },
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(value: 'stop', child: Text('Stop')),
+                              PopupMenuItem(
+                                value: 'download',
+                                child: Text('Download PCAP'),
+                              ),
+                              PopupMenuItem(value: 'remove', child: Text('Remove')),
+                            ],
+                          ),
                         ),
-                        subtitle: Text(
-                          [
-                            jobs[i].status,
-                            if (jobs[i].interfaceName.isNotEmpty)
-                              jobs[i].interfaceName,
-                            if (jobs[i].count.isNotEmpty)
-                              '${jobs[i].count} packets',
-                          ].where((item) => item.isNotEmpty).join(' · '),
-                        ),
-                        trailing: PopupMenuButton<String>(
-                          enabled: !_busy && jobs[i].id.isNotEmpty,
-                          onSelected: (value) {
-                            if (value == 'stop') _stop(jobs[i]);
-                            if (value == 'download') _download(jobs[i]);
-                          },
-                          itemBuilder: (context) => const [
-                            PopupMenuItem(
-                              value: 'stop',
-                              child: Text('Stop'),
-                            ),
-                            PopupMenuItem(
-                              value: 'download',
-                              child: Text('Download PCAP'),
-                            ),
-                          ],
-                        ),
-                      ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-            const SizedBox(height: 12),
-            Text(
-              'Captures default to 100 packets. Downloaded PCAP files are placed in app temporary storage.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+            ],
+          ),
         );
       },
     );
@@ -702,10 +937,7 @@ class _ToolLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: children,
-    );
+    return ListView(padding: const EdgeInsets.all(16), children: children);
   }
 }
 

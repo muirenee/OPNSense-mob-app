@@ -53,6 +53,65 @@ void main() {
     );
   });
 
+  test('ping payload nests model fields under settings', () {
+    final payload = DiagnosticsRepository.buildPingPayload(
+      '1.1.1.1',
+      family: 'ip',
+    );
+    final ping = payload['ping'] as Map<String, dynamic>;
+    final settings = ping['settings'] as Map<String, dynamic>;
+    expect(settings['hostname'], '1.1.1.1');
+    expect(settings['fam'], 'ip');
+    expect(ping.containsKey('hostname'), isFalse);
+  });
+
+  test('traceroute payload nests model fields under settings', () {
+    final payload = DiagnosticsRepository.buildTraceroutePayload(
+      'example.com',
+      family: 'inet6',
+      protocol: 'icmp',
+    );
+    final traceroute = payload['traceroute'] as Map<String, dynamic>;
+    final settings = traceroute['settings'] as Map<String, dynamic>;
+    expect(settings['hostname'], 'example.com');
+    expect(settings['ipproto'], 'inet6');
+    expect(settings['protocol'], 'icmp');
+  });
+
+  test('packet capture payload nests settings and encodes interfaces', () {
+    final payload = DiagnosticsRepository.buildPacketCapturePayload(
+      interfaces: {'lan', 'wan'},
+      family: 'ip',
+      protocol: 'tcp',
+      count: 25,
+    );
+    final capture = payload['packet_capture'] as Map<String, dynamic>;
+    final settings = capture['settings'] as Map<String, dynamic>;
+    expect(settings['interface'], 'lan,wan');
+    expect(settings['fam'], 'ip');
+    expect(settings['protocol'], 'tcp');
+    expect(settings['count'], '25');
+  });
+
+  test('extracts option settings from nested diagnostic model', () {
+    final settings = DiagnosticsRepository.extractSettings(
+      {
+        'packet_capture': {
+          'settings': {
+            'interface': {
+              'wan': {'value': 'WAN', 'selected': 1},
+            },
+          },
+        },
+      },
+      modelKey: 'packet_capture',
+    );
+    final choices = DiagnosticsRepository.settingChoices(settings, 'interface');
+    expect(choices, hasLength(1));
+    expect(choices.first.value, 'wan');
+    expect(choices.first.label, 'WAN');
+  });
+
   test('parses ping statistics into readable output', () {
     final jobs = DiagnosticsRepository.parseDiagnosticJobs({
       'rows': [

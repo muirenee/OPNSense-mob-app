@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../../core/api/api_choice.dart';
 import '../../core/api/opnsense_api_client.dart';
 import 'diagnostics_models.dart';
 
@@ -20,21 +21,25 @@ class DiagnosticsRepository {
     );
   }
 
+  Future<Map<String, dynamic>> loadPacketCaptureSettings() async {
+    final raw = await api.getData('/api/diagnostics/packet_capture/get');
+    return extractSettings(raw, modelKey: 'packet_capture');
+  }
+
   Future<String> runTraceroute(
     String host, {
     String protocol = 'udp',
     String family = 'inet',
+    String sourceAddress = '',
   }) async {
     final raw = await api.postData(
       '/api/diagnostics/traceroute/set',
-      data: {
-        'traceroute': {
-          'hostname': host,
-          'ipproto': family,
-          'protocol': protocol,
-          'source_address': '',
-        },
-      },
+      data: buildTraceroutePayload(
+        host,
+        protocol: protocol,
+        family: family,
+        sourceAddress: sourceAddress,
+      ),
     );
     ensureApiSuccess(raw, operation: 'Traceroute');
 
@@ -44,15 +49,26 @@ class DiagnosticsRepository {
         final output = formatTracerouteResponse(response);
         if (output.isNotEmpty) return output;
       }
+      final nested = raw['traceroute'];
+      if (nested is Map && nested['response'] != null) {
+        final output = formatTracerouteResponse(nested['response']);
+        if (output.isNotEmpty) return output;
+      }
     }
     return 'Traceroute completed but returned no hop data.';
   }
 
   Future<DiagnosticJob> runPing(
     String host, {
+    String family = 'ip',
+    String sourceAddress = '',
     Duration sampleWindow = const Duration(seconds: 4),
   }) async {
-    final created = await createPingJob(host);
+    final created = await createPingJob(
+      host,
+      family: family,
+      sourceAddress: sourceAddress,
+    );
     if (created.id.isEmpty) {
       throw StateError('Ping API did not return a job UUID.');
     }
@@ -62,7 +78,7 @@ class DiagnosticsRepository {
     try {
       await stopPing(created.id);
     } catch (_) {
-      // The job may already have completed. Continue and collect statistics.
+      // Some firewall builds complete the short job before stop is requested.
     }
 
     final jobs = await loadPingJobs();
@@ -77,32 +93,32 @@ class DiagnosticsRepository {
     try {
       await removePing(created.id);
     } catch (_) {
-      // Cleanup is best effort and should not hide valid ping statistics.
+      // Cleanup is best effort and should never hide valid statistics.
     }
 
     return result;
   }
 
-  Future<DiagnosticJob> createPingJob(String host) async {
+  Future<DiagnosticJob> createPingJob(
+    String host, {
+    String family = 'ip',
+    String sourceAddress = '',
+  }) async {
     final raw = await api.postData(
       '/api/diagnostics/ping/set',
-      data: {
-        'ping': {
-          'hostname': host,
-          'fam': 'ip',
-          'source_address': '',
-          'packetsize': '56',
-          'disable_frag': '0',
-          'interval': '1',
-          'description': 'Netsource Sentinel',
-        },
-      },
+      data: buildPingPayload(
+        host,
+        family: family,
+        sourceAddress: sourceAddress,
+      ),
     );
     ensureApiSuccess(raw, operation: 'Create ping job');
 
     final id = extractJobId(raw);
     if (id.isEmpty) {
-      throw StateError('The firewall accepted the ping request but returned no UUID.');
+      throw StateError(
+        'The firewall accepted the ping settings but returned no job UUID.',
+      );
     }
 
     final started = await api.postData(
@@ -140,33 +156,39 @@ class DiagnosticsRepository {
   }
 
   Future<PacketCaptureJob> createPacketCapture({
-    required String interfaceName,
+    required Set<String> interfaces,
+    String family = 'any',
+    String protocol = 'any',
     String host = '',
     String port = '',
     int count = 100,
+    bool promiscuous = false,
+    bool invertProtocol = false,
+    bool invertPort = false,
   }) async {
+    if (interfaces.isEmpty) {
+      throw StateError('Select at least one interface for packet capture.');
+    }
     final raw = await api.postData(
       '/api/diagnostics/packet_capture/set',
-      data: {
-        'packet_capture': {
-          'interface': interfaceName,
-          'description': 'Netsource Sentinel capture',
-          'promiscuous': '0',
-          'fam': 'any',
-          'protocol_not': '0',
-          'protocol': 'any',
-          'host': host,
-          'port_not': '0',
-          'port': port,
-          'snaplen': '262144',
-          'count': count.toString(),
-        },
-      },
+      data: buildPacketCapturePayload(
+        interfaces: interfaces,
+        family: family,
+        protocol: protocol,
+        host: host,
+        port: port,
+        count: count,
+        promiscuous: promiscuous,
+        invertProtocol: invertProtocol,
+        invertPort: invertPort,
+      ),
     );
     ensureApiSuccess(raw, operation: 'Create packet capture');
     final id = extractJobId(raw);
     if (id.isEmpty) {
-      return PacketCaptureJob(id: '', status: stringifyOutput(raw));
+      throw StateError(
+        'The firewall accepted packet-capture settings but returned no job UUID.',
+      );
     }
     final started = await api.postData(
       '/api/diagnostics/packet_capture/start/${Uri.encodeComponent(id)}',
@@ -175,7 +197,7 @@ class DiagnosticsRepository {
     return PacketCaptureJob(
       id: id,
       status: _statusFrom(started, fallback: 'started'),
-      interfaceName: interfaceName,
+      interfaceName: interfaces.join(', '),
     );
   }
 
@@ -210,27 +232,146 @@ class DiagnosticsRepository {
     return file;
   }
 
+  static Map<String, dynamic> buildPingPayload(
+    String host, {
+    String family = 'ip',
+    String sourceAddress = '',
+    String packetSize = '56',
+    String interval = '1',
+    bool disableFragmentation = false,
+  }) {
+    return {
+      'ping': {
+        'settings': {
+          'hostname': host,
+          'fam': family,
+          'source_address': sourceAddress,
+          'packetsize': packetSize,
+          'disable_frag': disableFragmentation ? '1' : '0',
+          'interval': interval,
+          'description': 'Netsource Sentinel',
+        },
+      },
+    };
+  }
+
+  static Map<String, dynamic> buildTraceroutePayload(
+    String host, {
+    String protocol = 'udp',
+    String family = 'inet',
+    String sourceAddress = '',
+  }) {
+    return {
+      'traceroute': {
+        'settings': {
+          'hostname': host,
+          'ipproto': family,
+          'protocol': protocol,
+          'source_address': sourceAddress,
+        },
+      },
+    };
+  }
+
+  static Map<String, dynamic> buildPacketCapturePayload({
+    required Set<String> interfaces,
+    String family = 'any',
+    String protocol = 'any',
+    String host = '',
+    String port = '',
+    int count = 100,
+    bool promiscuous = false,
+    bool invertProtocol = false,
+    bool invertPort = false,
+  }) {
+    return {
+      'packet_capture': {
+        'settings': {
+          'interface': encodeApiChoiceValues(interfaces),
+          'description': 'Netsource Sentinel capture',
+          'promiscuous': promiscuous ? '1' : '0',
+          'fam': family,
+          'protocol_not': invertProtocol ? '1' : '0',
+          'protocol': protocol,
+          'host': host,
+          'port_not': invertPort ? '1' : '0',
+          'port': port,
+          'snaplen': '262144',
+          'count': count.toString(),
+        },
+      },
+    };
+  }
+
+  static Map<String, dynamic> extractSettings(
+    dynamic raw, {
+    required String modelKey,
+  }) {
+    if (raw is! Map) return <String, dynamic>{};
+    final map = Map<String, dynamic>.from(raw);
+    dynamic candidate = map[modelKey] ?? map;
+    if (candidate is Map) {
+      final model = Map<String, dynamic>.from(candidate);
+      candidate = model['settings'] ?? model;
+    }
+    return candidate is Map
+        ? Map<String, dynamic>.from(candidate)
+        : <String, dynamic>{};
+  }
+
+  static List<ApiChoice> settingChoices(
+    Map<String, dynamic> settings,
+    String field,
+  ) =>
+      parseApiChoices(settings[field], scalarValuesSelected: false);
+
+  static Set<String> selectedSettingChoices(
+    Map<String, dynamic> settings,
+    String field,
+  ) =>
+      parseApiChoices(settings[field])
+          .where((choice) => choice.selected)
+          .map((choice) => choice.value)
+          .toSet();
+
+  static String? selectedSettingChoice(
+    Map<String, dynamic> settings,
+    String field,
+  ) {
+    final choices = parseApiChoices(settings[field]);
+    for (final choice in choices) {
+      if (choice.selected) return choice.value;
+    }
+    final raw = settings[field];
+    if (raw is String && raw.trim().isNotEmpty) return raw.trim();
+    return null;
+  }
+
   static List<RouteEntry> parseRoutes(dynamic raw) {
     final rows = extractRows(raw);
-    final output = rows.map((row) {
-      return RouteEntry(
-        destination: firstString(
-          row,
-          const ['destination', 'network', 'dst', 'Destination'],
-        ),
-        gateway: firstString(row, const ['gateway', 'gw', 'Gateway']),
-        interfaceName: firstString(
-          row,
-          const ['interface', 'interface_name', 'netif', 'Netif', 'if'],
-        ),
-        flags: firstString(row, const ['flags', 'Flags']),
-        family: firstString(row, const ['family', 'af', 'proto']),
-      );
-    }).where((item) =>
-        item.destination.isNotEmpty ||
-        item.gateway.isNotEmpty ||
-        item.interfaceName.isNotEmpty).toList();
-    return output;
+    return rows
+        .map(
+          (row) => RouteEntry(
+            destination: firstString(
+              row,
+              const ['destination', 'network', 'dst', 'Destination'],
+            ),
+            gateway: firstString(row, const ['gateway', 'gw', 'Gateway']),
+            interfaceName: firstString(
+              row,
+              const ['interface', 'interface_name', 'netif', 'Netif', 'if'],
+            ),
+            flags: firstString(row, const ['flags', 'Flags']),
+            family: firstString(row, const ['family', 'af', 'proto']),
+          ),
+        )
+        .where(
+          (item) =>
+              item.destination.isNotEmpty ||
+              item.gateway.isNotEmpty ||
+              item.interfaceName.isNotEmpty,
+        )
+        .toList();
   }
 
   static List<DiagnosticJob> parseDiagnosticJobs(dynamic raw) {
@@ -299,11 +440,17 @@ class DiagnosticsRepository {
   static String extractJobId(dynamic raw) {
     if (raw is Map) {
       final map = Map<String, dynamic>.from(raw);
-      final direct = firstString(
-        map,
-        const ['uuid', 'id', 'jobid', 'job_id'],
-      );
-      if (direct.isNotEmpty) return direct;
+      final result = map['result'];
+      if (result is String &&
+          const {'failed', 'ok', 'success'}.contains(result.toLowerCase())) {
+        // A status word is never a job identifier.
+      } else {
+        final direct = firstString(
+          map,
+          const ['uuid', 'id', 'jobid', 'job_id'],
+        );
+        if (direct.isNotEmpty) return direct;
+      }
       for (final value in map.values) {
         if (value is Map) {
           final nested = extractJobId(value);
@@ -322,7 +469,7 @@ class DiagnosticsRepository {
     final map = Map<String, dynamic>.from(raw);
     final result = map['result']?.toString().trim().toLowerCase();
     final status = map['status']?.toString().trim().toLowerCase();
-    if (result == 'failed' || status == 'failed') {
+    if (result == 'failed' || status == 'failed' || status == 'error') {
       final detail = _errorDetail(map);
       throw StateError(
         detail.isEmpty ? '$operation failed.' : '$operation failed: $detail',
@@ -360,10 +507,7 @@ class DiagnosticsRepository {
               times.add(_withMs(value.toString()));
             }
           }
-          final extras = <String>[
-            if (asn.isNotEmpty) 'AS$asn',
-            ...times,
-          ];
+          final extras = <String>[if (asn.isNotEmpty) 'AS$asn', ...times];
           final prefix = hop.isEmpty ? '${i + 1}' : hop;
           final destination = host.isEmpty ? _compactMap(map) : host;
           lines.add(
@@ -377,7 +521,11 @@ class DiagnosticsRepository {
       return lines.join('\n');
     }
     if (response is Map) {
-      return _compactMap(Map<String, dynamic>.from(response));
+      final map = Map<String, dynamic>.from(response);
+      for (final key in const ['rows', 'items', 'data', 'response']) {
+        if (map[key] is List) return formatTracerouteResponse(map[key]);
+      }
+      return _compactMap(map);
     }
     return response.toString().trim();
   }
@@ -385,8 +533,11 @@ class DiagnosticsRepository {
   static List<Map<String, dynamic>> extractRows(dynamic raw) {
     dynamic candidate = raw;
     if (raw is Map) {
-      candidate =
-          raw['rows'] ?? raw['items'] ?? raw['data'] ?? raw['routes'] ?? raw;
+      candidate = raw['rows'] ??
+          raw['items'] ??
+          raw['data'] ??
+          raw['routes'] ??
+          raw;
     }
     final rows = <Map<String, dynamic>>[];
     if (candidate is List) {
@@ -408,8 +559,9 @@ class DiagnosticsRepository {
   static String firstString(Map<String, dynamic> map, List<String> keys) {
     for (final key in keys) {
       final value = map[key];
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
+      if (value is String || value is num || value is bool) {
+        final text = value.toString().trim();
+        if (text.isNotEmpty) return text;
       }
     }
     return '';
@@ -427,7 +579,7 @@ class DiagnosticsRepository {
     }
     if (raw is Map) {
       final map = Map<String, dynamic>.from(raw);
-      for (final key in const ['response', 'output', 'message']) {
+      for (final key in const ['response', 'output', 'message', 'hostname']) {
         if (map[key] != null) {
           final value = stringifyOutput(map[key]);
           if (value.isNotEmpty) return value;
@@ -443,9 +595,8 @@ class DiagnosticsRepository {
   static String _statusFrom(dynamic raw, {required String fallback}) {
     if (raw is Map) {
       final map = Map<String, dynamic>.from(raw);
-      return firstString(map, const ['status', 'state', 'result']).isEmpty
-          ? fallback
-          : firstString(map, const ['status', 'state', 'result']);
+      final value = firstString(map, const ['status', 'state', 'result']);
+      return value.isEmpty ? fallback : value;
     }
     return fallback;
   }
@@ -483,7 +634,12 @@ class DiagnosticsRepository {
 
   static String _compactMap(Map<String, dynamic> map) {
     return map.entries
-        .where((entry) => entry.value != null && entry.value.toString().isNotEmpty)
+        .where((entry) {
+          final value = entry.value;
+          return value != null &&
+              (value is String || value is num || value is bool) &&
+              value.toString().trim().isNotEmpty;
+        })
         .map((entry) => '${entry.key}: ${entry.value}')
         .join(' · ');
   }

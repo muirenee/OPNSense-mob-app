@@ -1,3 +1,4 @@
+import '../../core/api/api_choice.dart';
 import '../../core/api/opnsense_api_client.dart';
 import 'user_management_models.dart';
 
@@ -30,59 +31,88 @@ class UserManagementRepository {
     return parseGroups(raw);
   }
 
-  Future<Map<String, dynamic>> getUser(String uuid) async {
-    final raw = await api.getData(
-      '/api/auth/user/get/${Uri.encodeComponent(uuid)}',
-    );
+  /// Fetch an existing user or, with no UUID, OPNsense's default user model.
+  /// The default model includes the valid choices for groups, privileges,
+  /// shells and languages, which lets the UI render proper selectors.
+  Future<Map<String, dynamic>> getUser([String? uuid]) async {
+    final suffix = uuid == null || uuid.isEmpty
+        ? ''
+        : '/${Uri.encodeComponent(uuid)}';
+    final raw = await api.getData('/api/auth/user/get$suffix');
     return _extractModel(raw, 'user');
   }
 
-  Future<Map<String, dynamic>> getGroup(String uuid) async {
-    final raw = await api.getData(
-      '/api/auth/group/get/${Uri.encodeComponent(uuid)}',
-    );
+  /// Fetch an existing group or, with no UUID, the default group model with
+  /// valid member and privilege choices.
+  Future<Map<String, dynamic>> getGroup([String? uuid]) async {
+    final suffix = uuid == null || uuid.isEmpty
+        ? ''
+        : '/${Uri.encodeComponent(uuid)}';
+    final raw = await api.getData('/api/auth/group/get$suffix');
     return _extractModel(raw, 'group');
   }
 
-  Future<String> saveUser({String? uuid, required Map<String, dynamic> values}) async {
+  Future<String> saveUser({
+    String? uuid,
+    required Map<String, dynamic> values,
+  }) async {
     final raw = await api.postData(
       uuid == null || uuid.isEmpty
           ? '/api/auth/user/add'
           : '/api/auth/user/set/${Uri.encodeComponent(uuid)}',
       data: {'user': values},
     );
+    _ensureSuccess(raw, 'Save user');
     return _uuidFrom(raw);
   }
 
-  Future<String> saveGroup({String? uuid, required Map<String, dynamic> values}) async {
+  Future<String> saveGroup({
+    String? uuid,
+    required Map<String, dynamic> values,
+  }) async {
     final raw = await api.postData(
       uuid == null || uuid.isEmpty
           ? '/api/auth/group/add'
           : '/api/auth/group/set/${Uri.encodeComponent(uuid)}',
       data: {'group': values},
     );
+    _ensureSuccess(raw, 'Save group');
     return _uuidFrom(raw);
   }
 
   Future<void> deleteUser(String uuid) async {
-    await api.postData('/api/auth/user/del/${Uri.encodeComponent(uuid)}');
+    final raw = await api.postData(
+      '/api/auth/user/del/${Uri.encodeComponent(uuid)}',
+    );
+    _ensureSuccess(raw, 'Delete user');
   }
 
   Future<void> deleteGroup(String uuid) async {
-    await api.postData('/api/auth/group/del/${Uri.encodeComponent(uuid)}');
+    final raw = await api.postData(
+      '/api/auth/group/del/${Uri.encodeComponent(uuid)}',
+    );
+    _ensureSuccess(raw, 'Delete group');
   }
 
   Future<GeneratedApiKey> generateApiKey(String username) async {
     final raw = await api.postData(
       '/api/auth/user/add_api_key/${Uri.encodeComponent(username)}',
     );
-    final map = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    final map = raw is Map
+        ? Map<String, dynamic>.from(raw)
+        : <String, dynamic>{};
     final result = map['result'];
     Map<String, dynamic> payload = map;
     if (result is Map) payload = Map<String, dynamic>.from(result);
 
-    final key = _first(payload, const ['key', 'api_key', 'apikey', 'username']);
-    final secret = _first(payload, const ['secret', 'api_secret', 'password']);
+    final key = _first(
+      payload,
+      const ['key', 'api_key', 'apikey', 'username'],
+    );
+    final secret = _first(
+      payload,
+      const ['secret', 'api_secret', 'password'],
+    );
     final hostname = _first(map, const ['hostname', 'host']);
     if (key.isEmpty || secret.isEmpty) {
       throw StateError('The firewall did not return a new API key and secret.');
@@ -90,16 +120,38 @@ class UserManagementRepository {
     return GeneratedApiKey(key: key, secret: secret, hostname: hostname);
   }
 
+  static List<ApiChoice> choices(Map<String, dynamic> model, String field) {
+    return parseApiChoices(model[field], scalarValuesSelected: false);
+  }
+
+  static Set<String> selectedChoices(
+    Map<String, dynamic> model,
+    String field,
+  ) {
+    return parseApiChoices(model[field])
+        .where((choice) => choice.selected)
+        .map((choice) => choice.value)
+        .toSet();
+  }
+
+  static String encodeChoices(Iterable<String> values) =>
+      encodeApiChoiceValues(values);
+
   static List<FirewallUserSummary> parseUsers(dynamic raw) {
     return _rows(raw).map((row) {
       return FirewallUserSummary(
         uuid: _first(row, const ['uuid', 'id']),
         name: _first(row, const ['name', 'username', 'user']),
-        description: _first(row, const ['descr', 'description', 'full_name']),
+        description: _first(
+          row,
+          const ['descr', 'description', 'full_name'],
+        ),
         email: _first(row, const ['email']),
         scope: _first(row, const ['scope'], fallback: 'user'),
         disabled: _truthy(row['disabled']),
-        isAdmin: _truthy(row['is_admin']) || _truthy(row['admin']),
+        isAdmin: _truthy(row['is_admin']) ||
+            _truthy(row['admin']) ||
+            apiChoiceDisplayText(row['priv']).contains('page-all'),
         comment: _first(row, const ['comment']),
       );
     }).where((item) => item.name.isNotEmpty).toList()
@@ -113,8 +165,8 @@ class UserManagementRepository {
         name: _first(row, const ['name', 'groupname', 'group']),
         description: _first(row, const ['description', 'descr']),
         scope: _first(row, const ['scope'], fallback: 'user'),
-        member: _text(row['member'] ?? row['members']),
-        privileges: _text(row['priv'] ?? row['privileges']),
+        member: apiChoiceDisplayText(row['member'] ?? row['members']),
+        privileges: apiChoiceDisplayText(row['priv'] ?? row['privileges']),
         sourceNetworks: _text(row['source_networks']),
       );
     }).where((item) => item.name.isNotEmpty).toList()
@@ -158,7 +210,10 @@ class UserManagementRepository {
       if (uuid.isNotEmpty) return uuid;
       final result = map['result'];
       if (result is Map) {
-        return _first(Map<String, dynamic>.from(result), const ['uuid', 'id']);
+        return _first(
+          Map<String, dynamic>.from(result),
+          const ['uuid', 'id'],
+        );
       }
     }
     return '';
@@ -178,19 +233,13 @@ class UserManagementRepository {
 
   static String _text(dynamic value) {
     if (value == null) return '';
-    if (value is List) return value.map(_text).where((e) => e.isNotEmpty).join(', ');
-    if (value is Map) {
-      for (final key in const ['selected', 'value', 'name', 'label']) {
-        final text = _text(value[key]);
-        if (text.isNotEmpty) return text;
-      }
-      final selected = <String>[];
-      for (final entry in value.entries) {
-        if (_truthy(entry.value)) selected.add(entry.key.toString());
-      }
-      if (selected.isNotEmpty) return selected.join(', ');
+    if (value is String || value is num) return value.toString().trim();
+    if (value is bool) return value ? '1' : '0';
+    if (value is Iterable) {
+      return value.map(_text).where((e) => e.isNotEmpty).join(', ');
     }
-    return value.toString().trim();
+    if (value is Map) return apiChoiceDisplayText(value);
+    return '';
   }
 
   static bool _truthy(dynamic value) {
@@ -198,5 +247,25 @@ class UserManagementRepository {
     if (value is num) return value != 0;
     final text = value?.toString().trim().toLowerCase() ?? '';
     return const {'1', 'true', 'yes', 'on', 'enabled'}.contains(text);
+  }
+
+  static void _ensureSuccess(dynamic raw, String operation) {
+    if (raw is! Map) return;
+    final map = Map<String, dynamic>.from(raw);
+    final result = map['result']?.toString().trim().toLowerCase();
+    final status = map['status']?.toString().trim().toLowerCase();
+    if (result == 'failed' || status == 'failed' || status == 'error') {
+      final validations = map['validations'] ?? map['validation'];
+      if (validations is Map && validations.isNotEmpty) {
+        final details = validations.entries
+            .map((entry) => '${entry.key}: ${entry.value}')
+            .join(' · ');
+        throw StateError('$operation failed: $details');
+      }
+      final detail = _first(map, const ['message', 'error']);
+      throw StateError(
+        detail.isEmpty ? '$operation failed.' : '$operation failed: $detail',
+      );
+    }
   }
 }

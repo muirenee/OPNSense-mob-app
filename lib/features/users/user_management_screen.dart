@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api/api_choice.dart';
 import '../../core/api/opnsense_api_client.dart';
+import '../../core/widgets/api_select_fields.dart';
 import '../audit/audit_repository.dart';
 import '../profiles/firewall_profile.dart';
 import 'user_management_models.dart';
@@ -61,10 +63,12 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   Future<void> _openUser([FirewallUserSummary? user]) async {
     Map<String, dynamic> initial = <String, dynamic>{};
-    if (user != null && user.uuid.isNotEmpty) {
-      try {
-        initial = await _repository.getUser(user.uuid);
-      } catch (_) {}
+    try {
+      initial = await _repository.getUser(user?.uuid);
+    } catch (error) {
+      if (user != null) {
+        _show('Advanced user options could not be loaded: $error');
+      }
     }
     if (!mounted) return;
     final changed = await Navigator.of(context).push<bool>(
@@ -82,10 +86,12 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   Future<void> _openGroup([FirewallGroupSummary? group]) async {
     Map<String, dynamic> initial = <String, dynamic>{};
-    if (group != null && group.uuid.isNotEmpty) {
-      try {
-        initial = await _repository.getGroup(group.uuid);
-      } catch (_) {}
+    try {
+      initial = await _repository.getGroup(group?.uuid);
+    } catch (error) {
+      if (group != null) {
+        _show('Advanced group options could not be loaded: $error');
+      }
     }
     if (!mounted) return;
     final changed = await Navigator.of(context).push<bool>(
@@ -262,8 +268,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     return FutureBuilder<List<FirewallUserSummary>>(
       future: _users,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            !snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
@@ -319,8 +324,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     ChoiceChip(
                       label: Text(entry.value),
                       selected: _userFilter == entry.key,
-                      onSelected: (_) =>
-                          setState(() => _userFilter = entry.key),
+                      onSelected: (_) => setState(() => _userFilter = entry.key),
                     ),
                 ],
               ),
@@ -392,9 +396,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 const SizedBox(height: 8),
               ],
               if (users.isEmpty)
-                const _EmptyCard(
-                  text: 'No users match the selected filters.',
-                ),
+                const _EmptyCard(text: 'No users match the selected filters.'),
             ],
           ),
         );
@@ -406,8 +408,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     return FutureBuilder<List<FirewallGroupSummary>>(
       future: _groups,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            !snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
@@ -419,14 +420,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         }
         final all = snapshot.data ?? const <FirewallGroupSummary>[];
         final query = _groupSearch.text.trim().toLowerCase();
-        final groups = all
-            .where(
-              (group) =>
-                  query.isEmpty ||
-                  group.name.toLowerCase().contains(query) ||
-                  group.description.toLowerCase().contains(query),
-            )
-            .toList();
+        final groups = all.where((group) {
+          return query.isEmpty ||
+              group.name.toLowerCase().contains(query) ||
+              group.description.toLowerCase().contains(query) ||
+              group.member.toLowerCase().contains(query) ||
+              group.privileges.toLowerCase().contains(query);
+        }).toList();
 
         return RefreshIndicator(
           onRefresh: _refresh,
@@ -445,27 +445,30 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.search),
-                  hintText: 'Search groups',
+                  hintText: 'Search groups, members or rights',
                 ),
               ),
               const SizedBox(height: 14),
               for (final group in groups) ...[
                 Card(
                   child: ListTile(
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.groups_outlined),
-                    ),
+                    leading: const CircleAvatar(child: Icon(Icons.groups_outlined)),
                     title: Text(
                       group.name,
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
-                    subtitle: Text(
-                      [
-                        if (group.description.isNotEmpty) group.description,
-                        if (group.member.isNotEmpty) 'Members: ${group.member}',
-                      ].join('\n'),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (group.description.isNotEmpty) Text(group.description),
+                        if (group.member.isNotEmpty) Text('Members: ${group.member}'),
+                        if (group.privileges.isNotEmpty)
+                          Text(
+                            'Rights: ${group.privileges}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
                     ),
                     onTap: () => _openGroup(group),
                     trailing: PopupMenuButton<String>(
@@ -486,8 +489,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 ),
                 const SizedBox(height: 8),
               ],
-              if (groups.isEmpty)
-                const _EmptyCard(text: 'No groups match the search.'),
+              if (groups.isEmpty) const _EmptyCard(text: 'No groups match the search.'),
             ],
           ),
         );
@@ -519,29 +521,59 @@ class _UserEditorScreenState extends State<_UserEditorScreen> {
   late final TextEditingController _email;
   late final TextEditingController _comment;
   late final TextEditingController _password;
+  late final TextEditingController _landingPage;
+  late final List<ApiChoice> _groupChoices;
+  late final List<ApiChoice> _privilegeChoices;
+  late final List<ApiChoice> _shellChoices;
+  late final List<ApiChoice> _languageChoices;
+  late Set<String> _groups;
+  late Set<String> _privileges;
+  String? _shell;
+  String? _language;
   bool _disabled = false;
   bool _busy = false;
 
   @override
   void initState() {
     super.initState();
-    String value(String key, String fallback) =>
-        widget.initial[key]?.toString() ?? fallback;
     _name = TextEditingController(
-      text: value('name', widget.user?.name ?? ''),
+      text: _scalar(widget.initial['name'], widget.user?.name ?? ''),
     );
     _description = TextEditingController(
-      text: value('descr', widget.user?.description ?? ''),
+      text: _scalar(
+        widget.initial['descr'] ?? widget.initial['description'],
+        widget.user?.description ?? '',
+      ),
     );
     _email = TextEditingController(
-      text: value('email', widget.user?.email ?? ''),
+      text: _scalar(widget.initial['email'], widget.user?.email ?? ''),
     );
     _comment = TextEditingController(
-      text: value('comment', widget.user?.comment ?? ''),
+      text: _scalar(widget.initial['comment'], widget.user?.comment ?? ''),
     );
     _password = TextEditingController();
-    final raw = widget.initial['disabled'] ?? widget.user?.disabled;
-    _disabled = raw == true || raw == 1 || raw?.toString() == '1';
+    _landingPage = TextEditingController(
+      text: _scalar(widget.initial['landing_page'], ''),
+    );
+    _disabled = _bool(
+      widget.initial['disabled'],
+      widget.user?.disabled ?? false,
+    );
+
+    _groupChoices = UserManagementRepository.choices(
+      widget.initial,
+      'group_memberships',
+    );
+    _groups = UserManagementRepository.selectedChoices(
+      widget.initial,
+      'group_memberships',
+    );
+    _privilegeChoices = UserManagementRepository.choices(widget.initial, 'priv');
+    _privileges = UserManagementRepository.selectedChoices(widget.initial, 'priv');
+    _shellChoices = UserManagementRepository.choices(widget.initial, 'shell');
+    _languageChoices = UserManagementRepository.choices(widget.initial, 'language');
+    _shell = _selectedOne(widget.initial['shell']);
+    _language = _selectedOne(widget.initial['language']);
   }
 
   @override
@@ -551,6 +583,7 @@ class _UserEditorScreenState extends State<_UserEditorScreen> {
     _email.dispose();
     _comment.dispose();
     _password.dispose();
+    _landingPage.dispose();
     super.dispose();
   }
 
@@ -559,6 +592,11 @@ class _UserEditorScreenState extends State<_UserEditorScreen> {
       _show('Username is required.');
       return;
     }
+    if (widget.user == null && _password.text.isEmpty) {
+      _show('Password is required for a new local user.');
+      return;
+    }
+
     setState(() => _busy = true);
     final values = <String, dynamic>{
       'name': _name.text.trim(),
@@ -566,25 +604,28 @@ class _UserEditorScreenState extends State<_UserEditorScreen> {
       'email': _email.text.trim(),
       'comment': _comment.text.trim(),
       'disabled': _disabled ? '1' : '0',
-      'scope': widget.initial['scope']?.toString() ??
-          widget.user?.scope ??
-          'user',
+      'scope': _scalar(
+        widget.initial['scope'],
+        widget.user?.scope ?? 'user',
+      ),
+      'group_memberships': UserManagementRepository.encodeChoices(_groups),
+      'priv': UserManagementRepository.encodeChoices(_privileges),
     };
     if (_password.text.isNotEmpty) values['password'] = _password.text;
-    for (final key in const ['priv', 'landing_page', 'language', 'shell']) {
-      if (widget.initial[key] != null) values[key] = widget.initial[key];
+    if (_shell != null) values['shell'] = _shell;
+    if (_language != null) values['language'] = _language;
+    if (_landingPage.text.trim().isNotEmpty || widget.initial.containsKey('landing_page')) {
+      values['landing_page'] = _landingPage.text.trim();
     }
 
     try {
-      await widget.repository.saveUser(
-        uuid: widget.user?.uuid,
-        values: values,
-      );
+      await widget.repository.saveUser(uuid: widget.user?.uuid, values: values);
       try {
         await widget.audit.record(
           action: widget.user == null ? 'Add user' : 'Edit user',
           target: _name.text.trim(),
           result: 'success',
+          details: '${_groups.length} groups · ${_privileges.length} direct rights',
         );
       } catch (_) {}
       if (mounted) Navigator.pop(context, true);
@@ -610,54 +651,110 @@ class _UserEditorScreenState extends State<_UserEditorScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(
-            controller: _name,
-            enabled: !editing || !systemUser,
-            decoration: const InputDecoration(labelText: 'Username'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _description,
-            decoration: const InputDecoration(
-              labelText: 'Full name / description',
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _email,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(labelText: 'Email'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _comment,
-            decoration: const InputDecoration(labelText: 'Comment'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _password,
-            obscureText: true,
-            decoration: InputDecoration(
-              labelText: editing
-                  ? 'New password (leave blank to keep current)'
-                  : 'Password',
-            ),
-          ),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            value: _disabled,
-            onChanged: (value) => setState(() => _disabled = value),
-            title: const Text('Disabled'),
-            subtitle: const Text('Disabled users cannot authenticate.'),
-          ),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(14),
-              child: Text(
-                'Existing direct privileges and advanced account settings are preserved when editing. Group membership is managed through Groups.',
+          _EditorSection(
+            title: 'Account',
+            icon: Icons.person_outline,
+            children: [
+              TextField(
+                controller: _name,
+                enabled: !editing || !systemUser,
+                decoration: const InputDecoration(labelText: 'Username'),
               ),
-            ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _description,
+                decoration: const InputDecoration(labelText: 'Full name / description'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _email,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(labelText: 'Email'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _comment,
+                decoration: const InputDecoration(labelText: 'Comment'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _password,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: editing
+                      ? 'New password (leave blank to keep current)'
+                      : 'Password',
+                ),
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _disabled,
+                onChanged: (value) => setState(() => _disabled = value),
+                title: const Text('Disabled'),
+                subtitle: const Text('Disabled users cannot authenticate.'),
+              ),
+            ],
           ),
+          const SizedBox(height: 14),
+          _EditorSection(
+            title: 'Membership & access',
+            icon: Icons.admin_panel_settings_outlined,
+            children: [
+              ApiMultiSelectField(
+                label: 'Groups',
+                choices: _groupChoices,
+                selected: _groups,
+                prefixIcon: Icons.groups_outlined,
+                helperText: 'Select the firewall groups this user belongs to.',
+                searchHint: 'Search groups',
+                onChanged: (values) => setState(() => _groups = values),
+              ),
+              const SizedBox(height: 12),
+              ApiMultiSelectField(
+                label: 'Direct access rights',
+                choices: _privilegeChoices,
+                selected: _privileges,
+                prefixIcon: Icons.policy_outlined,
+                helperText: 'Direct user privileges. Group rights are inherited separately.',
+                searchHint: 'Search access rights',
+                onChanged: (values) => setState(() => _privileges = values),
+              ),
+            ],
+          ),
+          if (_shellChoices.isNotEmpty ||
+              _languageChoices.isNotEmpty ||
+              widget.initial.containsKey('landing_page')) ...[
+            const SizedBox(height: 14),
+            _EditorSection(
+              title: 'Advanced',
+              icon: Icons.tune,
+              children: [
+                if (_shellChoices.isNotEmpty) ...[
+                  ApiSingleSelectField(
+                    label: 'Login shell',
+                    choices: _shellChoices,
+                    value: _shell,
+                    onChanged: (value) => setState(() => _shell = value),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (_languageChoices.isNotEmpty) ...[
+                  ApiSingleSelectField(
+                    label: 'Language',
+                    choices: _languageChoices,
+                    value: _language,
+                    onChanged: (value) => setState(() => _language = value),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (widget.initial.containsKey('landing_page'))
+                  TextField(
+                    controller: _landingPage,
+                    decoration: const InputDecoration(labelText: 'Landing page'),
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: _busy ? null : _save,
@@ -697,24 +794,34 @@ class _GroupEditorScreenState extends State<_GroupEditorScreen> {
   late final TextEditingController _name;
   late final TextEditingController _description;
   late final TextEditingController _sourceNetworks;
+  late final List<ApiChoice> _memberChoices;
+  late final List<ApiChoice> _privilegeChoices;
+  late Set<String> _members;
+  late Set<String> _privileges;
   bool _busy = false;
 
   @override
   void initState() {
     super.initState();
     _name = TextEditingController(
-      text: widget.initial['name']?.toString() ?? widget.group?.name ?? '',
+      text: _scalar(widget.initial['name'], widget.group?.name ?? ''),
     );
     _description = TextEditingController(
-      text: widget.initial['description']?.toString() ??
-          widget.group?.description ??
-          '',
+      text: _scalar(
+        widget.initial['description'] ?? widget.initial['descr'],
+        widget.group?.description ?? '',
+      ),
     );
     _sourceNetworks = TextEditingController(
-      text: widget.initial['source_networks']?.toString() ??
-          widget.group?.sourceNetworks ??
-          '',
+      text: _scalar(
+        widget.initial['source_networks'] ?? widget.initial['sourceNetworks'],
+        widget.group?.sourceNetworks ?? '',
+      ),
     );
+    _memberChoices = UserManagementRepository.choices(widget.initial, 'member');
+    _members = UserManagementRepository.selectedChoices(widget.initial, 'member');
+    _privilegeChoices = UserManagementRepository.choices(widget.initial, 'priv');
+    _privileges = UserManagementRepository.selectedChoices(widget.initial, 'priv');
   }
 
   @override
@@ -726,76 +833,102 @@ class _GroupEditorScreenState extends State<_GroupEditorScreen> {
   }
 
   Future<void> _save() async {
-    if (_name.text.trim().isEmpty) return;
+    if (_name.text.trim().isEmpty) {
+      _show('Group name is required.');
+      return;
+    }
     setState(() => _busy = true);
     final values = <String, dynamic>{
       'name': _name.text.trim(),
       'description': _description.text.trim(),
       'source_networks': _sourceNetworks.text.trim(),
-      'scope': widget.initial['scope']?.toString() ??
-          widget.group?.scope ??
-          'user',
+      'scope': _scalar(widget.initial['scope'], widget.group?.scope ?? 'user'),
+      'member': UserManagementRepository.encodeChoices(_members),
+      'priv': UserManagementRepository.encodeChoices(_privileges),
     };
-    for (final key in const ['member', 'priv']) {
-      if (widget.initial[key] != null) values[key] = widget.initial[key];
-    }
     try {
-      await widget.repository.saveGroup(
-        uuid: widget.group?.uuid,
-        values: values,
-      );
+      await widget.repository.saveGroup(uuid: widget.group?.uuid, values: values);
       try {
         await widget.audit.record(
           action: widget.group == null ? 'Add group' : 'Edit group',
           target: _name.text.trim(),
           result: 'success',
+          details: '${_members.length} members · ${_privileges.length} access rights',
         );
       } catch (_) {}
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to save group: $error')),
-        );
-      }
+      _show('Unable to save group: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _show(String text) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final editing = widget.group != null;
+    final systemGroup = widget.group?.isSystem ?? false;
     return Scaffold(
       appBar: AppBar(title: Text(editing ? 'Edit group' : 'Add group')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(
-            controller: _name,
-            decoration: const InputDecoration(labelText: 'Group name'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _description,
-            decoration: const InputDecoration(labelText: 'Description'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _sourceNetworks,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Source networks',
-              hintText: 'Optional network restrictions',
-            ),
-          ),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(14),
-              child: Text(
-                'Existing members and privileges are preserved when editing basic group details.',
+          _EditorSection(
+            title: 'Group',
+            icon: Icons.groups_outlined,
+            children: [
+              TextField(
+                controller: _name,
+                enabled: !editing || !systemGroup,
+                decoration: const InputDecoration(labelText: 'Group name'),
               ),
-            ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _description,
+                decoration: const InputDecoration(labelText: 'Description'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _sourceNetworks,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Source networks',
+                  hintText: 'Optional network restrictions',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _EditorSection(
+            title: 'Members & access rights',
+            icon: Icons.policy_outlined,
+            children: [
+              ApiMultiSelectField(
+                label: 'Members',
+                choices: _memberChoices,
+                selected: _members,
+                prefixIcon: Icons.people_outline,
+                helperText: 'Select users that belong to this group.',
+                searchHint: 'Search users',
+                onChanged: (values) => setState(() => _members = values),
+              ),
+              const SizedBox(height: 12),
+              ApiMultiSelectField(
+                label: 'Access rights',
+                choices: _privilegeChoices,
+                selected: _privileges,
+                prefixIcon: Icons.security_outlined,
+                helperText: 'Select the OPNsense privileges inherited by group members.',
+                searchHint: 'Search access rights',
+                onChanged: (values) => setState(() => _privileges = values),
+              ),
+            ],
           ),
           const SizedBox(height: 18),
           FilledButton.icon(
@@ -810,6 +943,47 @@ class _GroupEditorScreenState extends State<_GroupEditorScreen> {
             label: Text(editing ? 'Save changes' : 'Add group'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EditorSection extends StatelessWidget {
+  const _EditorSection({
+    required this.title,
+    required this.icon,
+    required this.children,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            ...children,
+          ],
+        ),
       ),
     );
   }
@@ -860,6 +1034,7 @@ class _Header extends StatelessWidget {
 
 class _StatusChip extends StatelessWidget {
   const _StatusChip({required this.label, required this.tone});
+
   final String label;
   final Color tone;
 
@@ -883,6 +1058,7 @@ class _StatusChip extends StatelessWidget {
 
 class _EmptyCard extends StatelessWidget {
   const _EmptyCard({required this.text});
+
   final String text;
 
   @override
@@ -927,4 +1103,31 @@ class _ErrorPane extends StatelessWidget {
           ),
         ),
       );
+}
+
+String _scalar(dynamic value, [String fallback = '']) {
+  if (value == null) return fallback;
+  if (value is String || value is num) return value.toString().trim();
+  if (value is bool) return value ? '1' : '0';
+  return fallback;
+}
+
+bool _bool(dynamic value, bool fallback) {
+  if (value == null) return fallback;
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  final text = value.toString().trim().toLowerCase();
+  if (const {'1', 'true', 'yes', 'on', 'enabled'}.contains(text)) return true;
+  if (const {'0', 'false', 'no', 'off', 'disabled'}.contains(text)) return false;
+  return fallback;
+}
+
+String? _selectedOne(dynamic raw) {
+  final selected = parseApiChoices(raw)
+      .where((choice) => choice.selected)
+      .map((choice) => choice.value)
+      .toList();
+  if (selected.isNotEmpty) return selected.first;
+  if (raw is String && raw.trim().isNotEmpty) return raw.trim();
+  return null;
 }

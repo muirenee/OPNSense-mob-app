@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/api/api_choice.dart';
+import '../../../core/widgets/api_select_fields.dart';
 import '../../audit/audit_repository.dart';
 import 'nat_models.dart';
 import 'nat_repository.dart';
@@ -24,13 +26,14 @@ class NatRuleEditor extends StatefulWidget {
 
 class _NatRuleEditorState extends State<NatRuleEditor> {
   late final TextEditingController _description;
-  late final TextEditingController _interface;
   late final TextEditingController _source;
   late final TextEditingController _sourcePort;
   late final TextEditingController _destination;
   late final TextEditingController _destinationPort;
   late final TextEditingController _target;
   late final TextEditingController _targetPort;
+  List<ApiChoice> _interfaceChoices = const [];
+  Set<String> _interfaces = <String>{};
   String _ipProtocol = 'inet';
   String _protocol = 'tcp';
   String _reflection = '';
@@ -38,6 +41,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
   bool _enabled = true;
   bool _log = false;
   bool _busy = false;
+  bool _optionsLoading = false;
 
   @override
   void initState() {
@@ -45,24 +49,31 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
     String scalar(List<String> keys, String fallback) {
       for (final key in keys) {
         final value = _read(widget.initial, key);
-        if (value != null && value.toString().trim().isNotEmpty) {
-          return value.toString().trim();
+        if (value is String || value is num) {
+          final text = value.toString().trim();
+          if (text.isNotEmpty) return text;
         }
       }
       return fallback;
     }
 
     _description = TextEditingController(
-      text: scalar(const ['descr', 'description'], widget.rule?.description ?? ''),
-    );
-    _interface = TextEditingController(
-      text: scalar(const ['interface'], widget.rule?.interfaceName ?? 'wan'),
+      text: scalar(
+        const ['descr', 'description'],
+        widget.rule?.description ?? '',
+      ),
     );
     _source = TextEditingController(
-      text: scalar(const ['source.network', 'source_net'], widget.rule?.source ?? ''),
+      text: scalar(
+        const ['source.network', 'source_net'],
+        widget.rule?.source ?? '',
+      ),
     );
     _sourcePort = TextEditingController(
-      text: scalar(const ['source.port', 'source_port'], widget.rule?.sourcePort ?? ''),
+      text: scalar(
+        const ['source.port', 'source_port'],
+        widget.rule?.sourcePort ?? '',
+      ),
     );
     _destination = TextEditingController(
       text: scalar(
@@ -80,13 +91,19 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
       text: scalar(const ['target'], widget.rule?.target ?? ''),
     );
     _targetPort = TextEditingController(
-      text: scalar(const ['local-port', 'local_port'], widget.rule?.targetPort ?? ''),
+      text: scalar(
+        const ['local-port', 'local_port'],
+        widget.rule?.targetPort ?? '',
+      ),
     );
     _ipProtocol = scalar(const ['ipprotocol'], 'inet').toLowerCase();
     if (!const {'inet', 'inet6', 'inet46'}.contains(_ipProtocol)) {
       _ipProtocol = 'inet';
     }
-    _protocol = scalar(const ['protocol'], widget.rule?.protocol ?? 'tcp').toLowerCase();
+    _protocol = scalar(
+      const ['protocol'],
+      widget.rule?.protocol ?? 'tcp',
+    ).toLowerCase();
     if (!const {'tcp', 'udp', 'tcp/udp', 'any'}.contains(_protocol)) {
       _protocol = 'tcp';
     }
@@ -97,8 +114,37 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
     _pass = scalar(const ['pass'], 'rule');
     if (!const {'', 'pass', 'rule'}.contains(_pass)) _pass = 'rule';
     final disabled = _read(widget.initial, 'disabled');
-    _enabled = disabled == null ? (widget.rule?.enabled ?? true) : !_truthy(disabled);
+    _enabled = disabled == null
+        ? (widget.rule?.enabled ?? true)
+        : !_truthy(disabled);
     _log = _truthy(_read(widget.initial, 'log'));
+    _applyOptions(widget.initial);
+    _loadOptions();
+  }
+
+  void _applyOptions(Map<String, dynamic> model) {
+    final choices = NatRepository.choices(model, 'interface');
+    if (choices.isNotEmpty) _interfaceChoices = choices;
+    final selected = NatRepository.selectedChoices(model, 'interface');
+    if (selected.isNotEmpty) _interfaces = selected;
+    if (_interfaces.isEmpty && widget.rule?.interfaceName.isNotEmpty == true) {
+      _interfaces = _split(widget.rule!.interfaceName);
+    }
+  }
+
+  Future<void> _loadOptions() async {
+    setState(() => _optionsLoading = true);
+    try {
+      final model = widget.rule == null
+          ? await widget.repository.getDefaultRule(NatRuleKind.portForward)
+          : await widget.repository.getRule(widget.rule!);
+      if (!mounted) return;
+      setState(() => _applyOptions(model));
+    } catch (_) {
+      // A manual fallback remains available if option metadata is unavailable.
+    } finally {
+      if (mounted) setState(() => _optionsLoading = false);
+    }
   }
 
   dynamic _read(Map<String, dynamic> map, String key) {
@@ -120,10 +166,15 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
     return const {'1', 'true', 'yes', 'on', 'enabled'}.contains(text);
   }
 
+  Set<String> _split(String value) => value
+      .split(',')
+      .map((item) => item.trim())
+      .where((item) => item.isNotEmpty)
+      .toSet();
+
   @override
   void dispose() {
     _description.dispose();
-    _interface.dispose();
     _source.dispose();
     _sourcePort.dispose();
     _destination.dispose();
@@ -134,21 +185,24 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
   }
 
   Future<void> _save() async {
-    if (_interface.text.trim().isEmpty ||
+    if (_interfaces.isEmpty ||
         _destination.text.trim().isEmpty ||
         _target.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Interface, destination and redirect target are required.'),
+          content: Text(
+            'Interface, destination and redirect target are required.',
+          ),
         ),
       );
       return;
     }
 
     setState(() => _busy = true);
+    final sortedInterfaces = _interfaces.toList()..sort();
     final values = <String, dynamic>{
       'disabled': _enabled ? '0' : '1',
-      'interface': _interface.text.trim(),
+      'interface': sortedInterfaces.join(','),
       'ipprotocol': _ipProtocol,
       'protocol': _protocol == 'any' ? '' : _protocol,
       'source': {
@@ -207,18 +261,31 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (_optionsLoading) const LinearProgressIndicator(),
           TextField(
             controller: _description,
             decoration: const InputDecoration(labelText: 'Description'),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _interface,
-            decoration: const InputDecoration(
-              labelText: 'Interface(s)',
-              hintText: 'wan or comma-separated interface identifiers',
+          if (_interfaceChoices.isNotEmpty)
+            ApiMultiSelectField(
+              label: 'Interfaces',
+              choices: _interfaceChoices,
+              selected: _interfaces,
+              prefixIcon: Icons.settings_ethernet,
+              helperText: 'Select the interface(s) that receive this traffic.',
+              searchHint: 'Search interfaces',
+              onChanged: (values) => setState(() => _interfaces = values),
+            )
+          else
+            TextFormField(
+              initialValue: _interfaces.join(','),
+              decoration: const InputDecoration(
+                labelText: 'Interfaces',
+                hintText: 'Interface IDs separated by commas',
+              ),
+              onChanged: (value) => _interfaces = _split(value),
             ),
-          ),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -229,7 +296,10 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
                   items: const [
                     DropdownMenuItem(value: 'inet', child: Text('IPv4')),
                     DropdownMenuItem(value: 'inet6', child: Text('IPv6')),
-                    DropdownMenuItem(value: 'inet46', child: Text('IPv4 + IPv6')),
+                    DropdownMenuItem(
+                      value: 'inet46',
+                      child: Text('IPv4 + IPv6'),
+                    ),
                   ],
                   onChanged: (value) =>
                       setState(() => _ipProtocol = value ?? 'inet'),
@@ -243,7 +313,10 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
                   items: const [
                     DropdownMenuItem(value: 'tcp', child: Text('TCP')),
                     DropdownMenuItem(value: 'udp', child: Text('UDP')),
-                    DropdownMenuItem(value: 'tcp/udp', child: Text('TCP/UDP')),
+                    DropdownMenuItem(
+                      value: 'tcp/udp',
+                      child: Text('TCP/UDP'),
+                    ),
                     DropdownMenuItem(value: 'any', child: Text('Any')),
                   ],
                   onChanged: (value) =>
@@ -298,16 +371,17 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
           const SizedBox(height: 10),
           TextField(
             controller: _targetPort,
-            decoration: const InputDecoration(
-              labelText: 'Redirect target port',
-            ),
+            decoration: const InputDecoration(labelText: 'Redirect target port'),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: _reflection,
             decoration: const InputDecoration(labelText: 'NAT reflection'),
             items: const [
-              DropdownMenuItem(value: '', child: Text('Use system default')),
+              DropdownMenuItem(
+                value: '',
+                child: Text('Use system default'),
+              ),
               DropdownMenuItem(value: 'purenat', child: Text('Enable')),
               DropdownMenuItem(value: 'disable', child: Text('Disable')),
             ],
@@ -343,7 +417,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
             child: Padding(
               padding: EdgeInsets.all(14),
               child: Text(
-                'Sentinel applies Destination NAT changes with savepoint/rollback protection and verifies API reachability before confirming them.',
+                'Sentinel applies Destination NAT changes with rollback protection and verifies management reachability before confirming them.',
               ),
             ),
           ),
