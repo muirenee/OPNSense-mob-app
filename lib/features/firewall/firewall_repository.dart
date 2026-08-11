@@ -19,10 +19,10 @@ class FirewallRepository {
     return parseRules(raw);
   }
 
-  /// Toggle a Firewall Automation rule using OPNsense's rollback-safe flow:
+  /// Toggle a Firewall Automation rule using the platform rollback-safe flow:
   /// savepoint -> toggle -> apply with rollback revision -> connectivity test ->
   /// cancel rollback. If connectivity fails after apply, cancelRollback is not
-  /// called and OPNsense can automatically revert the firewall component.
+  /// called and the firewall can automatically revert the firewall component.
   Future<String> toggleRuleSafely({
     required FirewallRuleSummary rule,
     required bool enabled,
@@ -34,7 +34,7 @@ class FirewallRepository {
     final savepoint = await api.postJson('/api/firewall/filter/savepoint');
     final revision = _first(savepoint, const ['revision', 'timestamp', 'id']);
     if (revision.isEmpty) {
-      throw StateError('OPNsense did not return a rollback revision.');
+      throw StateError('The firewall did not return a rollback revision.');
     }
 
     await api.postData(
