@@ -42,7 +42,11 @@ jobs:
 
       - name: Generate Android project
         working-directory: app
-        run: flutter create --platforms=android --org com.netsource .
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create --platforms=android --org com.netsource .
+          rm -f test/widget_test.dart
 
       - name: Resolve dependencies
         working-directory: app
