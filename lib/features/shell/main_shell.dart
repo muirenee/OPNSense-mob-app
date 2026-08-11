@@ -36,6 +36,11 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _index = 0;
 
+  void _selectTab(int index) {
+    if (index < 0 || index > 4 || index == _index) return;
+    setState(() => _index = index);
+  }
+
   void _editProfile() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -50,10 +55,23 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      DashboardScreen(profile: widget.profile, credentials: widget.credentials),
-      FirewallModuleScreen(profile: widget.profile, credentials: widget.credentials),
-      NetworkModuleScreen(profile: widget.profile, credentials: widget.credentials),
-      VpnScreen(profile: widget.profile, credentials: widget.credentials),
+      DashboardScreen(
+        profile: widget.profile,
+        credentials: widget.credentials,
+        onSelectMainTab: _selectTab,
+      ),
+      FirewallModuleScreen(
+        profile: widget.profile,
+        credentials: widget.credentials,
+      ),
+      NetworkModuleScreen(
+        profile: widget.profile,
+        credentials: widget.credentials,
+      ),
+      VpnScreen(
+        profile: widget.profile,
+        credentials: widget.credentials,
+      ),
       _MoreScreen(
         repository: widget.repository,
         profile: widget.profile,
@@ -72,7 +90,10 @@ class _MainShellState extends State<MainShell> {
               color: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(Icons.shield_outlined, color: Theme.of(context).colorScheme.primary),
+            child: Icon(
+              Icons.shield_outlined,
+              color: Theme.of(context).colorScheme.primary,
+            ),
           ),
         ),
         title: const Text('Netsource Sentinel'),
@@ -82,7 +103,11 @@ class _MainShellState extends State<MainShell> {
             child: TextButton.icon(
               onPressed: _editProfile,
               icon: const Icon(Icons.edit_outlined, size: 17),
-              label: Text(widget.profile.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+              label: Text(
+                widget.profile.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
           const SizedBox(width: 6),
@@ -91,13 +116,32 @@ class _MainShellState extends State<MainShell> {
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: _selectTab,
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.space_dashboard_outlined), selectedIcon: Icon(Icons.space_dashboard), label: 'Dashboard'),
-          NavigationDestination(icon: Icon(Icons.security_outlined), selectedIcon: Icon(Icons.security), label: 'Firewall'),
-          NavigationDestination(icon: Icon(Icons.hub_outlined), selectedIcon: Icon(Icons.hub), label: 'Network'),
-          NavigationDestination(icon: Icon(Icons.vpn_lock_outlined), selectedIcon: Icon(Icons.vpn_lock), label: 'VPN'),
-          NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
+          NavigationDestination(
+            icon: Icon(Icons.space_dashboard_outlined),
+            selectedIcon: Icon(Icons.space_dashboard),
+            label: 'Dashboard',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.security_outlined),
+            selectedIcon: Icon(Icons.security),
+            label: 'Firewall',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.hub_outlined),
+            selectedIcon: Icon(Icons.hub),
+            label: 'Network',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.vpn_lock_outlined),
+            selectedIcon: Icon(Icons.vpn_lock),
+            label: 'VPN',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.more_horiz),
+            label: 'More',
+          ),
         ],
       ),
     );
@@ -128,9 +172,19 @@ class _MoreScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text('Management', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+        Text(
+          'Management',
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+        ),
         const SizedBox(height: 4),
-        Text('System tools and Sentinel preferences', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        Text(
+          'System tools and Sentinel preferences',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
         const SizedBox(height: 16),
         Card(
           child: Column(
@@ -140,7 +194,13 @@ class _MoreScreen extends StatelessWidget {
                 title: const Text('Firewall profile'),
                 subtitle: Text(profile.name),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => _open(context, ProfileSetupScreen(repository: repository, initialProfile: profile)),
+                onTap: () => _open(
+                  context,
+                  ProfileSetupScreen(
+                    repository: repository,
+                    initialProfile: profile,
+                  ),
+                ),
               ),
               const Divider(height: 1),
               ListTile(
@@ -148,7 +208,13 @@ class _MoreScreen extends StatelessWidget {
                 title: const Text('System updates'),
                 subtitle: const Text('Check and install available updates'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => _open(context, FirmwareScreen(profile: profile, credentials: credentials)),
+                onTap: () => _open(
+                  context,
+                  FirmwareScreen(
+                    profile: profile,
+                    credentials: credentials,
+                  ),
+                ),
               ),
               const Divider(height: 1),
               ListTile(
@@ -156,15 +222,29 @@ class _MoreScreen extends StatelessWidget {
                 title: const Text('Services'),
                 subtitle: const Text('Start, stop and restart firewall services'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => _open(context, ServicesScreen(profile: profile, credentials: credentials)),
+                onTap: () => _open(
+                  context,
+                  ServicesScreen(
+                    profile: profile,
+                    credentials: credentials,
+                  ),
+                ),
               ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.troubleshoot_outlined),
                 title: const Text('Diagnostics'),
-                subtitle: const Text('Ping, traceroute, DNS, routes and packet capture'),
+                subtitle: const Text(
+                  'Ping, traceroute, DNS, routes and packet capture',
+                ),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => _open(context, DiagnosticsScreen(profile: profile, credentials: credentials)),
+                onTap: () => _open(
+                  context,
+                  DiagnosticsScreen(
+                    profile: profile,
+                    credentials: credentials,
+                  ),
+                ),
               ),
               const Divider(height: 1),
               ListTile(
@@ -172,15 +252,26 @@ class _MoreScreen extends StatelessWidget {
                 title: const Text('API capabilities'),
                 subtitle: const Text('Check endpoint support and permissions'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => _open(context, CapabilitiesScreen(profile: profile, credentials: credentials)),
+                onTap: () => _open(
+                  context,
+                  CapabilitiesScreen(
+                    profile: profile,
+                    credentials: credentials,
+                  ),
+                ),
               ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.history_outlined),
                 title: const Text('App audit trail'),
-                subtitle: const Text('Review service and firewall changes made from this app'),
+                subtitle: const Text(
+                  'Review service and firewall changes made from this app',
+                ),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => _open(context, AuditScreen(profileId: profile.id)),
+                onTap: () => _open(
+                  context,
+                  AuditScreen(profileId: profile.id),
+                ),
               ),
             ],
           ),
@@ -197,9 +288,18 @@ class _MoreScreen extends StatelessWidget {
                   value: themeMode,
                   underline: const SizedBox.shrink(),
                   items: const [
-                    DropdownMenuItem(value: ThemeMode.system, child: Text('System')),
-                    DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
-                    DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
+                    DropdownMenuItem(
+                      value: ThemeMode.system,
+                      child: Text('System'),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.light,
+                      child: Text('Light'),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.dark,
+                      child: Text('Dark'),
+                    ),
                   ],
                   onChanged: (value) {
                     if (value != null) onThemeModeChanged(value);
@@ -221,8 +321,10 @@ class _MoreScreen extends StatelessWidget {
         const Card(
           child: ListTile(
             leading: Icon(Icons.info_outline),
-            title: Text('Netsource Sentinel · Version 0.5.0'),
-            subtitle: Text('Modern dashboard · active links · expanded management'),
+            title: Text('Netsource Sentinel · Version 0.5.2'),
+            subtitle: Text(
+              'KEA DHCP · unified navigation · improved diagnostics',
+            ),
           ),
         ),
       ],
