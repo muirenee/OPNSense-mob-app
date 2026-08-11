@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 import '../../core/api/opnsense_api_client.dart';
@@ -27,7 +26,10 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   void initState() {
     super.initState();
     _repository = DiagnosticsRepository(
-      OpnSenseApiClient(profile: widget.profile, credentials: widget.credentials),
+      OpnSenseApiClient(
+        profile: widget.profile,
+        credentials: widget.credentials,
+      ),
     );
   }
 
@@ -65,7 +67,9 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
 
 class _PingTool extends StatefulWidget {
   const _PingTool({required this.repository});
+
   final DiagnosticsRepository repository;
+
   @override
   State<_PingTool> createState() => _PingToolState();
 }
@@ -84,28 +88,24 @@ class _PingToolState extends State<_PingTool> {
   Future<void> _run() async {
     final host = _host.text.trim();
     if (host.isEmpty) return;
+
     setState(() {
       _busy = true;
-      _result = 'Starting ping job…';
+      _result = 'Running ping…';
     });
+
     try {
-      final created = await widget.repository.createPingJob(host);
-      if (created.id.isEmpty) {
-        setState(() => _result = created.output.isEmpty ? created.status : created.output);
-        return;
-      }
-      await Future<void>.delayed(const Duration(seconds: 2));
-      final jobs = await widget.repository.loadPingJobs();
-      final match = jobs.where((item) => item.id == created.id).toList();
-      final job = match.isEmpty ? created : match.first;
+      final job = await widget.repository.runPing(host);
+      if (!mounted) return;
       setState(() {
         _result = [
-          'Job: ${created.id}',
+          host,
           if (job.status.isNotEmpty) 'Status: ${job.status}',
           if (job.output.isNotEmpty) job.output,
         ].join('\n');
       });
     } catch (error) {
+      if (!mounted) return;
       setState(() => _result = 'Ping failed: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -113,30 +113,50 @@ class _PingToolState extends State<_PingTool> {
   }
 
   @override
-  Widget build(BuildContext context) => _ToolLayout(
-        children: [
-          TextField(
-            controller: _host,
-            keyboardType: TextInputType.url,
-            decoration: const InputDecoration(
-              labelText: 'Host or IP address',
-              prefixIcon: Icon(Icons.language),
-            ),
+  Widget build(BuildContext context) {
+    return _ToolLayout(
+      children: [
+        const _ToolIntro(
+          icon: Icons.network_ping,
+          title: 'Ping',
+          text: 'Run a short ICMP reachability test from the firewall.',
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _host,
+          keyboardType: TextInputType.url,
+          autocorrect: false,
+          decoration: const InputDecoration(
+            labelText: 'Host or IP address',
+            prefixIcon: Icon(Icons.language),
           ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: _busy ? null : _run,
-            icon: const Icon(Icons.network_ping),
-            label: Text(_busy ? 'Running…' : 'Run ping'),
-          ),
-          _OutputCard(text: _result),
-        ],
-      );
+          onSubmitted: (_) {
+            if (!_busy) _run();
+          },
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: _busy ? null : _run,
+          icon: _busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.network_ping),
+          label: Text(_busy ? 'Running…' : 'Run ping'),
+        ),
+        _OutputCard(text: _result),
+      ],
+    );
+  }
 }
 
 class _TracerouteTool extends StatefulWidget {
   const _TracerouteTool({required this.repository});
+
   final DiagnosticsRepository repository;
+
   @override
   State<_TracerouteTool> createState() => _TracerouteToolState();
 }
@@ -145,6 +165,7 @@ class _TracerouteToolState extends State<_TracerouteTool> {
   final _host = TextEditingController(text: '1.1.1.1');
   bool _busy = false;
   String _result = '';
+  String _protocol = 'udp';
 
   @override
   void dispose() {
@@ -153,12 +174,23 @@ class _TracerouteToolState extends State<_TracerouteTool> {
   }
 
   Future<void> _run() async {
-    if (_host.text.trim().isEmpty) return;
-    setState(() => _busy = true);
+    final host = _host.text.trim();
+    if (host.isEmpty) return;
+
+    setState(() {
+      _busy = true;
+      _result = 'Running traceroute…';
+    });
+
     try {
-      final result = await widget.repository.runTraceroute(_host.text.trim());
-      setState(() => _result = result.isEmpty ? 'Traceroute request completed.' : result);
+      final result = await widget.repository.runTraceroute(
+        host,
+        protocol: _protocol,
+      );
+      if (!mounted) return;
+      setState(() => _result = result);
     } catch (error) {
+      if (!mounted) return;
       setState(() => _result = 'Traceroute failed: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -166,29 +198,66 @@ class _TracerouteToolState extends State<_TracerouteTool> {
   }
 
   @override
-  Widget build(BuildContext context) => _ToolLayout(
-        children: [
-          TextField(
-            controller: _host,
-            decoration: const InputDecoration(
-              labelText: 'Host or IP address',
-              prefixIcon: Icon(Icons.alt_route),
-            ),
+  Widget build(BuildContext context) {
+    return _ToolLayout(
+      children: [
+        const _ToolIntro(
+          icon: Icons.alt_route,
+          title: 'Traceroute',
+          text: 'Trace the network path from the firewall to a host.',
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _host,
+          autocorrect: false,
+          decoration: const InputDecoration(
+            labelText: 'Host or IP address',
+            prefixIcon: Icon(Icons.language),
           ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: _busy ? null : _run,
-            icon: const Icon(Icons.alt_route),
-            label: Text(_busy ? 'Running…' : 'Run traceroute'),
+          onSubmitted: (_) {
+            if (!_busy) _run();
+          },
+        ),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(
+          value: _protocol,
+          decoration: const InputDecoration(
+            labelText: 'Protocol',
+            prefixIcon: Icon(Icons.route_outlined),
           ),
-          _OutputCard(text: _result),
-        ],
-      );
+          items: const [
+            DropdownMenuItem(value: 'udp', child: Text('UDP (default)')),
+            DropdownMenuItem(value: 'icmp', child: Text('ICMP')),
+          ],
+          onChanged: _busy
+              ? null
+              : (value) {
+                  if (value != null) setState(() => _protocol = value);
+                },
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: _busy ? null : _run,
+          icon: _busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.alt_route),
+          label: Text(_busy ? 'Running…' : 'Run traceroute'),
+        ),
+        _OutputCard(text: _result),
+      ],
+    );
+  }
 }
 
 class _DnsTool extends StatefulWidget {
   const _DnsTool({required this.repository});
+
   final DiagnosticsRepository repository;
+
   @override
   State<_DnsTool> createState() => _DnsToolState();
 }
@@ -209,8 +278,10 @@ class _DnsToolState extends State<_DnsTool> {
     setState(() => _busy = true);
     try {
       final raw = await widget.repository.reverseLookup(_address.text.trim());
+      if (!mounted) return;
       setState(() => _result = DiagnosticsRepository.stringifyOutput(raw));
     } catch (error) {
+      if (!mounted) return;
       setState(() => _result = 'DNS lookup failed: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -218,29 +289,39 @@ class _DnsToolState extends State<_DnsTool> {
   }
 
   @override
-  Widget build(BuildContext context) => _ToolLayout(
-        children: [
-          TextField(
-            controller: _address,
-            decoration: const InputDecoration(
-              labelText: 'IP address for reverse lookup',
-              prefixIcon: Icon(Icons.dns_outlined),
-            ),
+  Widget build(BuildContext context) {
+    return _ToolLayout(
+      children: [
+        const _ToolIntro(
+          icon: Icons.dns_outlined,
+          title: 'Reverse DNS',
+          text: 'Look up the hostname associated with an IP address.',
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _address,
+          decoration: const InputDecoration(
+            labelText: 'IP address',
+            prefixIcon: Icon(Icons.dns_outlined),
           ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: _busy ? null : _run,
-            icon: const Icon(Icons.search),
-            label: const Text('Reverse lookup'),
-          ),
-          _OutputCard(text: _result),
-        ],
-      );
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: _busy ? null : _run,
+          icon: const Icon(Icons.search),
+          label: Text(_busy ? 'Looking up…' : 'Reverse lookup'),
+        ),
+        _OutputCard(text: _result),
+      ],
+    );
+  }
 }
 
 class _RoutesTool extends StatefulWidget {
   const _RoutesTool({required this.repository});
+
   final DiagnosticsRepository repository;
+
   @override
   State<_RoutesTool> createState() => _RoutesToolState();
 }
@@ -265,16 +346,23 @@ class _RoutesToolState extends State<_RoutesTool> {
     return FutureBuilder<List<RouteEntry>>(
       future: _future,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return _ToolLayout(children: [
-            Text('Routing table unavailable: ${snapshot.error}'),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: _refresh, child: const Text('Retry')),
-          ]);
+          return _ToolLayout(
+            children: [
+              Text('Routing table unavailable: ${snapshot.error}'),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _refresh,
+                child: const Text('Retry'),
+              ),
+            ],
+          );
         }
+
         final normalized = _query.toLowerCase().trim();
         final routes = (snapshot.data ?? const <RouteEntry>[]).where((route) {
           if (normalized.isEmpty) return true;
@@ -282,6 +370,7 @@ class _RoutesToolState extends State<_RoutesTool> {
               route.gateway.toLowerCase().contains(normalized) ||
               route.interfaceName.toLowerCase().contains(normalized);
         }).toList();
+
         return RefreshIndicator(
           onRefresh: _refresh,
           child: ListView(
@@ -308,12 +397,21 @@ class _RoutesToolState extends State<_RoutesTool> {
                             if (i > 0) const Divider(height: 1),
                             ListTile(
                               leading: const Icon(Icons.route_outlined),
-                              title: Text(routes[i].destination.isEmpty ? 'Route' : routes[i].destination),
-                              subtitle: Text([
-                                if (routes[i].gateway.isNotEmpty) 'via ${routes[i].gateway}',
-                                if (routes[i].interfaceName.isNotEmpty) routes[i].interfaceName,
-                                if (routes[i].flags.isNotEmpty) routes[i].flags,
-                              ].join(' · ')),
+                              title: Text(
+                                routes[i].destination.isEmpty
+                                    ? 'Route'
+                                    : routes[i].destination,
+                              ),
+                              subtitle: Text(
+                                [
+                                  if (routes[i].gateway.isNotEmpty)
+                                    'via ${routes[i].gateway}',
+                                  if (routes[i].interfaceName.isNotEmpty)
+                                    routes[i].interfaceName,
+                                  if (routes[i].flags.isNotEmpty)
+                                    routes[i].flags,
+                                ].join(' · '),
+                              ),
                             ),
                           ],
                         ],
@@ -329,7 +427,9 @@ class _RoutesToolState extends State<_RoutesTool> {
 
 class _PacketCaptureTool extends StatefulWidget {
   const _PacketCaptureTool({required this.repository});
+
   final DiagnosticsRepository repository;
+
   @override
   State<_PacketCaptureTool> createState() => _PacketCaptureToolState();
 }
@@ -370,11 +470,15 @@ class _PacketCaptureToolState extends State<_PacketCaptureTool> {
         host: _host.text.trim(),
         port: _port.text.trim(),
       );
-      setState(() => _message = job.id.isEmpty
-          ? 'Capture response: ${job.status}'
-          : 'Capture started: ${job.id}');
+      if (!mounted) return;
+      setState(() {
+        _message = job.id.isEmpty
+            ? 'Capture response: ${job.status}'
+            : 'Capture started: ${job.id}';
+      });
       await _refresh();
     } catch (error) {
+      if (!mounted) return;
       setState(() => _message = 'Capture failed: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -386,9 +490,11 @@ class _PacketCaptureToolState extends State<_PacketCaptureTool> {
     setState(() => _busy = true);
     try {
       await widget.repository.stopPacketCapture(job.id);
+      if (!mounted) return;
       setState(() => _message = 'Capture ${job.id} stopped.');
       await _refresh();
     } catch (error) {
+      if (!mounted) return;
       setState(() => _message = 'Stop failed: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -400,8 +506,12 @@ class _PacketCaptureToolState extends State<_PacketCaptureTool> {
     setState(() => _busy = true);
     try {
       final file = await widget.repository.downloadPacketCapture(job.id);
-      setState(() => _message = 'PCAP saved to app temporary storage:\n${file.path}');
+      if (!mounted) return;
+      setState(() {
+        _message = 'PCAP saved to app temporary storage:\n${file.path}';
+      });
     } catch (error) {
+      if (!mounted) return;
       setState(() => _message = 'PCAP download failed: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -451,15 +561,34 @@ class _PacketCaptureToolState extends State<_PacketCaptureTool> {
             const SizedBox(height: 12),
             Text(
               'Capture jobs',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
-            if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData)
-              const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: CircularProgressIndicator(),
+                ),
+              )
             else if (snapshot.hasError)
-              Card(child: ListTile(title: const Text('Capture jobs unavailable'), subtitle: Text(snapshot.error.toString())))
+              Card(
+                child: ListTile(
+                  title: const Text('Capture jobs unavailable'),
+                  subtitle: Text(snapshot.error.toString()),
+                ),
+              )
             else if (jobs.isEmpty)
-              const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('No packet capture jobs returned.')))
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Text('No packet capture jobs returned.'),
+                ),
+              )
             else
               Card(
                 child: Column(
@@ -467,12 +596,20 @@ class _PacketCaptureToolState extends State<_PacketCaptureTool> {
                     for (var i = 0; i < jobs.length; i++) ...[
                       if (i > 0) const Divider(height: 1),
                       ListTile(
-                        title: Text(jobs[i].description.isEmpty ? jobs[i].id : jobs[i].description),
-                        subtitle: Text([
-                          jobs[i].status,
-                          if (jobs[i].interfaceName.isNotEmpty) jobs[i].interfaceName,
-                          if (jobs[i].count.isNotEmpty) '${jobs[i].count} packets',
-                        ].where((item) => item.isNotEmpty).join(' · ')),
+                        title: Text(
+                          jobs[i].description.isEmpty
+                              ? jobs[i].id
+                              : jobs[i].description,
+                        ),
+                        subtitle: Text(
+                          [
+                            jobs[i].status,
+                            if (jobs[i].interfaceName.isNotEmpty)
+                              jobs[i].interfaceName,
+                            if (jobs[i].count.isNotEmpty)
+                              '${jobs[i].count} packets',
+                          ].where((item) => item.isNotEmpty).join(' · '),
+                        ),
                         trailing: PopupMenuButton<String>(
                           enabled: !_busy && jobs[i].id.isNotEmpty,
                           onSelected: (value) {
@@ -480,8 +617,14 @@ class _PacketCaptureToolState extends State<_PacketCaptureTool> {
                             if (value == 'download') _download(jobs[i]);
                           },
                           itemBuilder: (context) => const [
-                            PopupMenuItem(value: 'stop', child: Text('Stop')),
-                            PopupMenuItem(value: 'download', child: Text('Download PCAP')),
+                            PopupMenuItem(
+                              value: 'stop',
+                              child: Text('Stop'),
+                            ),
+                            PopupMenuItem(
+                              value: 'download',
+                              child: Text('Download PCAP'),
+                            ),
                           ],
                         ),
                       ),
@@ -501,8 +644,60 @@ class _PacketCaptureToolState extends State<_PacketCaptureTool> {
   }
 }
 
+class _ToolIntro extends StatelessWidget {
+  const _ToolIntro({
+    required this.icon,
+    required this.title,
+    required this.text,
+  });
+
+  final IconData icon;
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: Theme.of(context).colorScheme.primary),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              Text(
+                text,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ToolLayout extends StatelessWidget {
   const _ToolLayout({required this.children});
+
   final List<Widget> children;
 
   @override
@@ -516,6 +711,7 @@ class _ToolLayout extends StatelessWidget {
 
 class _OutputCard extends StatelessWidget {
   const _OutputCard({required this.text});
+
   final String text;
 
   @override
@@ -528,7 +724,7 @@ class _OutputCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           child: SelectableText(
             text,
-            style: const TextStyle(fontFamily: 'monospace'),
+            style: const TextStyle(fontFamily: 'monospace', height: 1.45),
           ),
         ),
       ),
