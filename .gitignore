@@ -48,3 +48,7 @@ app.*.map.json
 /android/key.properties
 /android/app/*.jks
 /android/app/*.keystore
+/ANDROID_KEYSTORE_BASE64*.txt
+/Netsource-Sentinel-release*.jks
+/Netsource-Sentinel-signing-setup*.txt
+/Netsource-Sentinel-signing-package*.zip
