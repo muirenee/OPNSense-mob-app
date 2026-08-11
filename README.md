@@ -1,11 +1,11 @@
-# Netsource OPN Manager
+# Netsource Sentinel
 
-Flutter mobile client for OPNsense firewall administration.
+Flutter mobile client for Netsource Sentinel firewall administration.
 
 ## v0.4.0 scope
 
 ### Profiles and security
-- Multiple saved OPNsense firewall profiles
+- Multiple saved Netsource Sentinel firewall profiles
 - Edit/delete/switch profiles
 - API Key / Secret authentication
 - Credentials stored in platform secure storage
@@ -23,7 +23,7 @@ Flutter mobile client for OPNsense firewall administration.
 
 ### Firewall and services
 - Firewall Automation/MVC rules with guarded enable/disable
-- OPNsense savepoint/apply/rollback safety flow
+- Savepoint/apply/rollback safety flow
 - Live firewall logs
 - NAT port-forward and outbound NAT browsers
 - Alias browser
@@ -47,9 +47,9 @@ Flutter mobile client for OPNsense firewall administration.
 
 ## Important safety and compatibility notes
 
-- API access depends on the Effective Privileges assigned to the OPNsense API user.
+- API access depends on the Effective Privileges assigned to the firewall API user.
 - Firewall Automation API rules are not the same as all legacy/core GUI rules; rules outside Firewall Automation may not be returned.
-- VPN, DHCP and diagnostic endpoint availability varies by OPNsense release, enabled component/plugin and ACL. The app probes capabilities and reports forbidden separately from unavailable.
+- VPN, DHCP and diagnostic endpoint availability varies by firewall release, enabled component/plugin and ACL. The app probes capabilities and reports forbidden separately from unavailable.
 - Service stop/restart and VPN service actions can interrupt sessions and require explicit confirmation.
 - Firewall state deletion/flush remains read-only in v0.4.
 - NAT/alias editing remains read-only in v0.4.
@@ -85,6 +85,6 @@ build/app/outputs/flutter-apk/app-release.apk
 
 The GitHub Actions workflow performs the same sequence, verifies the generated APK and uploads it as a workflow artifact.
 
-## OPNsense setup
+## Netsource Sentinel setup
 
-Create a dedicated local OPNsense API user and grant only the Effective Privileges needed by the modules you intend to use. Generate an API key and secret for that user and enter them in the app. Avoid using a full administrator account unless it is required.
+Create a dedicated local firewall API user and grant only the Effective Privileges needed by the modules you intend to use. Generate an API key and secret for that user and enter them in Netsource Sentinel. Avoid using a full administrator account unless it is required.
