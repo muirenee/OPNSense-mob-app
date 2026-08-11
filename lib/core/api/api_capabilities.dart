@@ -76,9 +76,9 @@ class ApiCapabilityProbe {
       path: '/api/diagnostics/interface/search_ndp',
     ),
     (
-      id: 'keaLeases',
+      id: 'keaLeases4',
       label: 'KEA DHCPv4 leases',
-      path: '/api/kea/leases/search',
+      path: '/api/kea/leases4/search',
     ),
     (
       id: 'keaReservations',
