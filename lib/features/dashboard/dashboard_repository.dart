@@ -9,7 +9,7 @@ class DashboardRepository {
   Future<DashboardSnapshot> load() async {
     final results = await Future.wait<Map<String, dynamic>>([
       api.getJson('/api/diagnostics/system/system_information'),
-      api.getJson('/api/diagnostics/system/memory'),
+      api.getJson('/api/diagnostics/system/system_resources'),
       api.getJson('/api/diagnostics/system/system_disk'),
       api.getJson('/api/interfaces/overview/interfaces_info?details=true'),
     ]);
