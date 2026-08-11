@@ -3,17 +3,27 @@ import 'package:netsource_opn_manager/features/dhcp/dhcp_models.dart';
 import 'package:netsource_opn_manager/features/dhcp/dhcp_repository.dart';
 
 void main() {
+  test('uses the concrete KEA IPv4 leases controller', () {
+    expect(DhcpRepository.leases4Path, '/api/kea/leases4/search');
+    expect(
+      DhcpRepository.deleteLease4Path,
+      '/api/kea/leases4/del_lease',
+    );
+    expect(DhcpRepository.leases4Path, isNot('/api/kea/leases/search'));
+  });
+
   test('parses KEA DHCP lease rows', () {
     final leases = DhcpRepository.parseLeases({
       'rows': [
         {
-          'ip-address': '192.168.1.20',
-          'hw-address': '00:11:22:33:44:55',
+          'address': '192.168.1.20',
+          'hwaddr': '00:11:22:33:44:55',
           'hostname': 'phone',
-          'interface': 'lan',
-          'state': 'active',
-          'client-id': '01:00:11:22:33:44:55',
-          'subnet-id': 4,
+          'if_name': 'lan',
+          'if_descr': 'LAN',
+          'state': 0,
+          'client_id': '01:00:11:22:33:44:55',
+          'subnet_id': 4,
         },
       ],
     });
@@ -21,9 +31,10 @@ void main() {
     expect(leases, hasLength(1));
     expect(leases.first.ip, '192.168.1.20');
     expect(leases.first.hostname, 'phone');
-    expect(leases.first.source, 'Kea');
+    expect(leases.first.source, 'Kea IPv4');
     expect(leases.first.clientId, '01:00:11:22:33:44:55');
     expect(leases.first.subnetId, '4');
+    expect(leases.first.interfaceName, 'lan');
   });
 
   test('parses KEA subnets and reservations', () {
