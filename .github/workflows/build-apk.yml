@@ -122,7 +122,7 @@ jobs:
             BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
             CERT_OUTPUT=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK")
             printf '%s\n' "$CERT_OUTPUT"
-            ACTUAL_CERT_SHA256=$(printf '%s\n' "$CERT_OUTPUT" | awk -F': ' '/certificate SHA-256 digest/{print tolower($2); exit}')
+            ACTUAL_CERT_SHA256=$(printf '%s\n' "$CERT_OUTPUT" | awk -F'digest: ' '/certificate SHA-256 digest/{print tolower($2); exit}')
             if [ -z "$ACTUAL_CERT_SHA256" ]; then
               echo "Unable to read the APK signing certificate fingerprint." >&2
               exit 1
