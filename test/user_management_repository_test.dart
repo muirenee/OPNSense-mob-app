@@ -30,20 +30,60 @@ void main() {
     expect(users.last.isAdmin, isTrue);
   });
 
-  test('parses firewall groups', () {
+  test('parses firewall groups with human labels from option maps', () {
     final groups = UserManagementRepository.parseGroups({
       'rows': [
         {
           'uuid': 'g1',
           'name': 'portal-users',
           'description': 'Captive portal users',
-          'member': ['alice', 'bob'],
-          'priv': ['page-system-usermanager'],
+          'member': {
+            '1001': {'value': 'alice', 'selected': 1},
+            '1002': {'value': 'bob', 'selected': 0},
+          },
+          'priv': {
+            'page-system-usermanager': {
+              'value': 'System: User Manager',
+              'selected': 1,
+            },
+            'page-all': {'value': 'All pages', 'selected': 0},
+          },
         },
       ],
     });
 
     expect(groups.single.name, 'portal-users');
-    expect(groups.single.member, contains('alice'));
+    expect(groups.single.member, 'alice');
+    expect(groups.single.member, isNot(contains('bob')));
+    expect(groups.single.privileges, 'System: User Manager');
+    expect(groups.single.privileges, isNot(contains('{')));
+  });
+
+  test('extracts selected user group memberships and privileges', () {
+    final model = <String, dynamic>{
+      'group_memberships': {
+        '2000': {'value': 'Portal Users', 'selected': 1},
+        '2001': {'value': 'Operators', 'selected': 0},
+      },
+      'priv': {
+        'page-system-usermanager': {
+          'value': 'System: User Manager',
+          'selected': 1,
+        },
+      },
+    };
+
+    expect(
+      UserManagementRepository.selectedChoices(model, 'group_memberships'),
+      {'2000'},
+    );
+    expect(
+      UserManagementRepository.selectedChoices(model, 'priv'),
+      {'page-system-usermanager'},
+    );
+    expect(
+      UserManagementRepository.encodeChoices({'2000', '2001'}),
+      '2000,2001',
+    );
   });
 }
