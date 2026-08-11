@@ -25,18 +25,28 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   late final AuditRepository _audit;
   late Future<List<FirewallUserSummary>> _users;
   late Future<List<FirewallGroupSummary>> _groups;
-  String _userQuery = '';
-  String _groupQuery = '';
+  final _userSearch = TextEditingController();
+  final _groupSearch = TextEditingController();
   String _userFilter = 'all';
 
   @override
   void initState() {
     super.initState();
     _repository = UserManagementRepository(
-      OpnSenseApiClient(profile: widget.profile, credentials: widget.credentials),
+      OpnSenseApiClient(
+        profile: widget.profile,
+        credentials: widget.credentials,
+      ),
     );
     _audit = AuditRepository(profileId: widget.profile.id);
     _reload();
+  }
+
+  @override
+  void dispose() {
+    _userSearch.dispose();
+    _groupSearch.dispose();
+    super.dispose();
   }
 
   void _reload() {
@@ -46,116 +56,116 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   Future<void> _refresh() async {
     setState(_reload);
-    await Future.wait([_users, _groups]);
+    await Future.wait<dynamic>([_users, _groups]);
   }
 
-  Future<void> _editUser([FirewallUserSummary? user]) async {
-    Map<String, dynamic> values = <String, dynamic>{};
+  Future<void> _openUser([FirewallUserSummary? user]) async {
+    Map<String, dynamic> initial = <String, dynamic>{};
     if (user != null && user.uuid.isNotEmpty) {
       try {
-        values = await _repository.getUser(user.uuid);
-      } catch (_) {
-        values = <String, dynamic>{};
-      }
+        initial = await _repository.getUser(user.uuid);
+      } catch (_) {}
     }
     if (!mounted) return;
-    final saved = await Navigator.of(context).push<bool>(
+    final changed = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => _UserEditor(
+        builder: (_) => _UserEditorScreen(
           repository: _repository,
           audit: _audit,
           user: user,
-          initial: values,
+          initial: initial,
         ),
       ),
     );
-    if (saved == true) await _refresh();
+    if (changed == true) await _refresh();
   }
 
-  Future<void> _editGroup([FirewallGroupSummary? group]) async {
-    Map<String, dynamic> values = <String, dynamic>{};
+  Future<void> _openGroup([FirewallGroupSummary? group]) async {
+    Map<String, dynamic> initial = <String, dynamic>{};
     if (group != null && group.uuid.isNotEmpty) {
       try {
-        values = await _repository.getGroup(group.uuid);
-      } catch (_) {
-        values = <String, dynamic>{};
-      }
+        initial = await _repository.getGroup(group.uuid);
+      } catch (_) {}
     }
     if (!mounted) return;
-    final saved = await Navigator.of(context).push<bool>(
+    final changed = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => _GroupEditor(
+        builder: (_) => _GroupEditorScreen(
           repository: _repository,
           audit: _audit,
           group: group,
-          initial: values,
+          initial: initial,
         ),
       ),
     );
-    if (saved == true) await _refresh();
+    if (changed == true) await _refresh();
   }
 
   Future<void> _deleteUser(FirewallUserSummary user) async {
     if (user.isSystem) {
-      _message('System users cannot be deleted from Sentinel.');
+      _show('System users cannot be deleted from Sentinel.');
       return;
     }
-    final ok = await _confirm(
+    if (!await _confirm(
       title: 'Delete user?',
-      text: 'Delete ${user.name}? This can affect authentication and API access.',
+      text: 'Delete ${user.name}? Authentication and API access may be affected.',
       action: 'Delete',
-    );
-    if (!ok) return;
+    )) {
+      return;
+    }
     try {
       await _repository.deleteUser(user.uuid);
-      await _record('Delete user', user.name, 'success');
+      await _auditSafe('Delete user', user.name, 'success');
       await _refresh();
     } catch (error) {
-      await _record('Delete user', user.name, 'failed', error.toString());
-      _message('User delete failed: $error');
+      await _auditSafe('Delete user', user.name, 'failed', error.toString());
+      _show('Unable to delete user: $error');
     }
   }
 
   Future<void> _deleteGroup(FirewallGroupSummary group) async {
     if (group.isSystem) {
-      _message('System groups cannot be deleted from Sentinel.');
+      _show('System groups cannot be deleted from Sentinel.');
       return;
     }
-    final ok = await _confirm(
+    if (!await _confirm(
       title: 'Delete group?',
-      text: 'Delete ${group.name}? Users relying on this group may lose privileges.',
+      text: 'Delete ${group.name}? Users may lose privileges inherited from this group.',
       action: 'Delete',
-    );
-    if (!ok) return;
+    )) {
+      return;
+    }
     try {
       await _repository.deleteGroup(group.uuid);
-      await _record('Delete group', group.name, 'success');
+      await _auditSafe('Delete group', group.name, 'success');
       await _refresh();
     } catch (error) {
-      await _record('Delete group', group.name, 'failed', error.toString());
-      _message('Group delete failed: $error');
+      await _auditSafe('Delete group', group.name, 'failed', error.toString());
+      _show('Unable to delete group: $error');
     }
   }
 
-  Future<void> _generateApiKey(FirewallUserSummary user) async {
-    final ok = await _confirm(
+  Future<void> _generateKey(FirewallUserSummary user) async {
+    if (!await _confirm(
       title: 'Generate API key?',
-      text: 'Create a new API key for ${user.name}? The secret is shown only once. Store it securely.',
+      text: 'Generate a new API key for ${user.name}? The secret is displayed only once.',
       action: 'Generate',
-    );
-    if (!ok) return;
+    )) {
+      return;
+    }
     try {
-      final generated = await _repository.generateApiKey(user.name);
-      await _record('Generate API key', user.name, 'success');
+      final key = await _repository.generateApiKey(user.name);
+      await _auditSafe('Generate API key', user.name, 'success');
       if (!mounted) return;
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('New API credentials'),
           content: SelectableText(
-            '${generated.hostname.isEmpty ? '' : 'Host: ${generated.hostname}\n\n'}'
-            'API key:\n${generated.key}\n\nAPI secret:\n${generated.secret}\n\n'
-            'Copy these now. The secret cannot be retrieved later.',
+            '${key.hostname.isEmpty ? '' : 'Host: ${key.hostname}\n\n'}'
+            'API key:\n${key.key}\n\n'
+            'API secret:\n${key.secret}\n\n'
+            'Copy these now. The API secret cannot be retrieved later.',
           ),
           actions: [
             FilledButton(
@@ -166,8 +176,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         ),
       );
     } catch (error) {
-      await _record('Generate API key', user.name, 'failed', error.toString());
-      _message('API key generation failed: $error');
+      await _auditSafe(
+        'Generate API key',
+        user.name,
+        'failed',
+        error.toString(),
+      );
+      _show('Unable to generate API key: $error');
     }
   }
 
@@ -196,7 +211,12 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         false;
   }
 
-  Future<void> _record(String action, String target, String result, [String details = '']) async {
+  Future<void> _auditSafe(
+    String action,
+    String target,
+    String result, [
+    String details = '',
+  ]) async {
     try {
       await _audit.record(
         action: action,
@@ -207,7 +227,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     } catch (_) {}
   }
 
-  void _message(String text) {
+  void _show(String text) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
@@ -221,8 +241,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           title: const Text('Users & Groups'),
           actions: [
             IconButton(
-              tooltip: 'Refresh',
               onPressed: _refresh,
+              tooltip: 'Refresh',
               icon: const Icon(Icons.refresh),
             ),
           ],
@@ -233,12 +253,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             ],
           ),
         ),
-        body: TabBarView(
-          children: [
-            _usersTab(),
-            _groupsTab(),
-          ],
-        ),
+        body: TabBarView(children: [_usersTab(), _groupsTab()]),
       ),
     );
   }
@@ -247,13 +262,20 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     return FutureBuilder<List<FirewallUserSummary>>(
       future: _users,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.hasError) return _error('Users unavailable', snapshot.error);
-        final users = snapshot.data ?? const <FirewallUserSummary>[];
-        final query = _userQuery.trim().toLowerCase();
-        final filtered = users.where((user) {
+        if (snapshot.hasError) {
+          return _ErrorPane(
+            title: 'Users unavailable',
+            error: snapshot.error,
+            onRetry: _refresh,
+          );
+        }
+        final all = snapshot.data ?? const <FirewallUserSummary>[];
+        final query = _userSearch.text.trim().toLowerCase();
+        final users = all.where((user) {
           if (_userFilter == 'enabled' && user.disabled) return false;
           if (_userFilter == 'disabled' && !user.disabled) return false;
           if (_userFilter == 'admin' && !user.isAdmin) return false;
@@ -269,14 +291,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
             children: [
-              _sectionHeader(
+              _Header(
                 title: 'Firewall users',
-                subtitle: '${filtered.length} of ${users.length} shown',
-                onAdd: () => _editUser(),
+                subtitle: '${users.length} of ${all.length} shown',
+                onAdd: () => _openUser(),
               ),
               const SizedBox(height: 14),
               TextField(
-                onChanged: (value) => setState(() => _userQuery = value),
+                controller: _userSearch,
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.search),
                   hintText: 'Search username, name or email',
@@ -287,27 +310,35 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  for (final item in const {
+                  for (final entry in const {
                     'all': 'All',
                     'enabled': 'Enabled',
                     'disabled': 'Disabled',
                     'admin': 'Admins',
                   }.entries)
                     ChoiceChip(
-                      label: Text(item.value),
-                      selected: _userFilter == item.key,
-                      onSelected: (_) => setState(() => _userFilter = item.key),
+                      label: Text(entry.value),
+                      selected: _userFilter == entry.key,
+                      onSelected: (_) =>
+                          setState(() => _userFilter = entry.key),
                     ),
                 ],
               ),
               const SizedBox(height: 14),
-              for (final user in filtered) ...[
+              for (final user in users) ...[
                 Card(
                   child: ListTile(
                     leading: CircleAvatar(
-                      child: Icon(user.isAdmin ? Icons.admin_panel_settings_outlined : Icons.person_outline),
+                      child: Icon(
+                        user.isAdmin
+                            ? Icons.admin_panel_settings_outlined
+                            : Icons.person_outline,
+                      ),
                     ),
-                    title: Text(user.name, style: const TextStyle(fontWeight: FontWeight.w800)),
+                    title: Text(
+                      user.name,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -316,34 +347,54 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         const SizedBox(height: 5),
                         Wrap(
                           spacing: 6,
+                          runSpacing: 4,
                           children: [
-                            _pill(user.disabled ? 'Disabled' : 'Enabled', user.disabled ? Colors.orange : Colors.green),
-                            if (user.isAdmin) _pill('Admin', Theme.of(context).colorScheme.primary),
-                            if (user.isSystem) _pill('System', Theme.of(context).colorScheme.outline),
+                            _StatusChip(
+                              label: user.disabled ? 'Disabled' : 'Enabled',
+                              tone: user.disabled ? Colors.orange : Colors.green,
+                            ),
+                            if (user.isAdmin)
+                              _StatusChip(
+                                label: 'Admin',
+                                tone: Theme.of(context).colorScheme.primary,
+                              ),
+                            if (user.isSystem)
+                              _StatusChip(
+                                label: 'System',
+                                tone: Theme.of(context).colorScheme.outline,
+                              ),
                           ],
                         ),
                       ],
                     ),
-                    isThreeLine: true,
-                    onTap: () => _editUser(user),
+                    onTap: () => _openUser(user),
                     trailing: PopupMenuButton<String>(
                       onSelected: (value) {
-                        if (value == 'edit') _editUser(user);
-                        if (value == 'key') _generateApiKey(user);
+                        if (value == 'edit') _openUser(user);
+                        if (value == 'key') _generateKey(user);
                         if (value == 'delete') _deleteUser(user);
                       },
                       itemBuilder: (_) => [
                         const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                        const PopupMenuItem(value: 'key', child: Text('Generate API key')),
+                        const PopupMenuItem(
+                          value: 'key',
+                          child: Text('Generate API key'),
+                        ),
                         if (!user.isSystem)
-                          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Delete'),
+                          ),
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 8),
               ],
-              if (filtered.isEmpty) _empty('No users match the selected filters.'),
+              if (users.isEmpty)
+                const _EmptyCard(
+                  text: 'No users match the selected filters.',
+                ),
             ],
           ),
         );
@@ -355,16 +406,27 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     return FutureBuilder<List<FirewallGroupSummary>>(
       future: _groups,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.hasError) return _error('Groups unavailable', snapshot.error);
-        final groups = snapshot.data ?? const <FirewallGroupSummary>[];
-        final query = _groupQuery.trim().toLowerCase();
-        final filtered = groups.where((group) =>
-            query.isEmpty ||
-            group.name.toLowerCase().contains(query) ||
-            group.description.toLowerCase().contains(query)).toList();
+        if (snapshot.hasError) {
+          return _ErrorPane(
+            title: 'Groups unavailable',
+            error: snapshot.error,
+            onRetry: _refresh,
+          );
+        }
+        final all = snapshot.data ?? const <FirewallGroupSummary>[];
+        final query = _groupSearch.text.trim().toLowerCase();
+        final groups = all
+            .where(
+              (group) =>
+                  query.isEmpty ||
+                  group.name.toLowerCase().contains(query) ||
+                  group.description.toLowerCase().contains(query),
+            )
+            .toList();
 
         return RefreshIndicator(
           onRefresh: _refresh,
@@ -372,25 +434,31 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
             children: [
-              _sectionHeader(
+              _Header(
                 title: 'Firewall groups',
-                subtitle: '${filtered.length} of ${groups.length} shown',
-                onAdd: () => _editGroup(),
+                subtitle: '${groups.length} of ${all.length} shown',
+                onAdd: () => _openGroup(),
               ),
               const SizedBox(height: 14),
               TextField(
-                onChanged: (value) => setState(() => _groupQuery = value),
+                controller: _groupSearch,
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.search),
                   hintText: 'Search groups',
                 ),
               ),
               const SizedBox(height: 14),
-              for (final group in filtered) ...[
+              for (final group in groups) ...[
                 Card(
                   child: ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.groups_outlined)),
-                    title: Text(group.name, style: const TextStyle(fontWeight: FontWeight.w800)),
+                    leading: const CircleAvatar(
+                      child: Icon(Icons.groups_outlined),
+                    ),
+                    title: Text(
+                      group.name,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
                     subtitle: Text(
                       [
                         if (group.description.isNotEmpty) group.description,
@@ -399,80 +467,37 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    onTap: () => _editGroup(group),
+                    onTap: () => _openGroup(group),
                     trailing: PopupMenuButton<String>(
                       onSelected: (value) {
-                        if (value == 'edit') _editGroup(group);
+                        if (value == 'edit') _openGroup(group);
                         if (value == 'delete') _deleteGroup(group);
                       },
                       itemBuilder: (_) => [
                         const PopupMenuItem(value: 'edit', child: Text('Edit')),
                         if (!group.isSystem)
-                          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Delete'),
+                          ),
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 8),
               ],
-              if (filtered.isEmpty) _empty('No groups match the search.'),
+              if (groups.isEmpty)
+                const _EmptyCard(text: 'No groups match the search.'),
             ],
           ),
         );
       },
     );
   }
-
-  Widget _sectionHeader({
-    required String title,
-    required String subtitle,
-    required VoidCallback onAdd,
-  }) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-              Text(subtitle, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-            ],
-          ),
-        ),
-        FilledButton.icon(onPressed: onAdd, icon: const Icon(Icons.add), label: const Text('Add')),
-      ],
-    );
-  }
-
-  Widget _pill(String text, Color color) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(color: color.withValues(alpha: .12), borderRadius: BorderRadius.circular(99)),
-        child: Text(text, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700)),
-      );
-
-  Widget _empty(String text) => Card(child: Padding(padding: const EdgeInsets.all(20), child: Text(text)));
-
-  Widget _error(String title, Object? error) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.manage_accounts_outlined, size: 48),
-              const SizedBox(height: 12),
-              Text(title, style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              Text(error.toString(), textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              FilledButton.icon(onPressed: _refresh, icon: const Icon(Icons.refresh), label: const Text('Retry')),
-            ],
-          ),
-        ),
-      );
 }
 
-class _UserEditor extends StatefulWidget {
-  const _UserEditor({
+class _UserEditorScreen extends StatefulWidget {
+  const _UserEditorScreen({
     required this.repository,
     required this.audit,
     required this.initial,
@@ -485,12 +510,12 @@ class _UserEditor extends StatefulWidget {
   final FirewallUserSummary? user;
 
   @override
-  State<_UserEditor> createState() => _UserEditorState();
+  State<_UserEditorScreen> createState() => _UserEditorScreenState();
 }
 
-class _UserEditorState extends State<_UserEditor> {
+class _UserEditorScreenState extends State<_UserEditorScreen> {
   late final TextEditingController _name;
-  late final TextEditingController _descr;
+  late final TextEditingController _description;
   late final TextEditingController _email;
   late final TextEditingController _comment;
   late final TextEditingController _password;
@@ -500,20 +525,29 @@ class _UserEditorState extends State<_UserEditor> {
   @override
   void initState() {
     super.initState();
-    String text(String key, [String fallback = '']) => widget.initial[key]?.toString() ?? fallback;
-    _name = TextEditingController(text: text('name', widget.user?.name ?? ''));
-    _descr = TextEditingController(text: text('descr', widget.user?.description ?? ''));
-    _email = TextEditingController(text: text('email', widget.user?.email ?? ''));
-    _comment = TextEditingController(text: text('comment', widget.user?.comment ?? ''));
+    String value(String key, String fallback) =>
+        widget.initial[key]?.toString() ?? fallback;
+    _name = TextEditingController(
+      text: value('name', widget.user?.name ?? ''),
+    );
+    _description = TextEditingController(
+      text: value('descr', widget.user?.description ?? ''),
+    );
+    _email = TextEditingController(
+      text: value('email', widget.user?.email ?? ''),
+    );
+    _comment = TextEditingController(
+      text: value('comment', widget.user?.comment ?? ''),
+    );
     _password = TextEditingController();
-    final disabled = widget.initial['disabled'] ?? widget.user?.disabled;
-    _disabled = disabled == true || disabled == 1 || disabled?.toString() == '1';
+    final raw = widget.initial['disabled'] ?? widget.user?.disabled;
+    _disabled = raw == true || raw == 1 || raw?.toString() == '1';
   }
 
   @override
   void dispose() {
     _name.dispose();
-    _descr.dispose();
+    _description.dispose();
     _email.dispose();
     _comment.dispose();
     _password.dispose();
@@ -522,22 +556,30 @@ class _UserEditorState extends State<_UserEditor> {
 
   Future<void> _save() async {
     if (_name.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Username is required.')));
+      _show('Username is required.');
       return;
     }
     setState(() => _busy = true);
-    final data = <String, dynamic>{
+    final values = <String, dynamic>{
       'name': _name.text.trim(),
-      'descr': _descr.text.trim(),
+      'descr': _description.text.trim(),
       'email': _email.text.trim(),
       'comment': _comment.text.trim(),
       'disabled': _disabled ? '1' : '0',
-      'scope': widget.initial['scope']?.toString() ?? widget.user?.scope ?? 'user',
+      'scope': widget.initial['scope']?.toString() ??
+          widget.user?.scope ??
+          'user',
     };
-    if (_password.text.isNotEmpty) data['password'] = _password.text;
+    if (_password.text.isNotEmpty) values['password'] = _password.text;
+    for (final key in const ['priv', 'landing_page', 'language', 'shell']) {
+      if (widget.initial[key] != null) values[key] = widget.initial[key];
+    }
 
     try {
-      await widget.repository.saveUser(uuid: widget.user?.uuid, values: data);
+      await widget.repository.saveUser(
+        uuid: widget.user?.uuid,
+        values: values,
+      );
       try {
         await widget.audit.record(
           action: widget.user == null ? 'Add user' : 'Edit user',
@@ -547,53 +589,84 @@ class _UserEditorState extends State<_UserEditor> {
       } catch (_) {}
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Unable to save user: $error')));
+      _show('Unable to save user: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _show(String text) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final editing = widget.user != null;
+    final systemUser = widget.user?.isSystem ?? false;
     return Scaffold(
       appBar: AppBar(title: Text(editing ? 'Edit user' : 'Add user')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(controller: _name, enabled: !widget.user!.isSystem || !editing, decoration: const InputDecoration(labelText: 'Username')),
+          TextField(
+            controller: _name,
+            enabled: !editing || !systemUser,
+            decoration: const InputDecoration(labelText: 'Username'),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _descr, decoration: const InputDecoration(labelText: 'Full name / description')),
+          TextField(
+            controller: _description,
+            decoration: const InputDecoration(
+              labelText: 'Full name / description',
+            ),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email')),
+          TextField(
+            controller: _email,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(labelText: 'Email'),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _comment, decoration: const InputDecoration(labelText: 'Comment')),
+          TextField(
+            controller: _comment,
+            decoration: const InputDecoration(labelText: 'Comment'),
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _password,
             obscureText: true,
-            decoration: InputDecoration(labelText: editing ? 'New password (leave blank to keep)' : 'Password'),
+            decoration: InputDecoration(
+              labelText: editing
+                  ? 'New password (leave blank to keep current)'
+                  : 'Password',
+            ),
           ),
-          const SizedBox(height: 8),
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Disabled'),
-            subtitle: const Text('Disabled users cannot authenticate.'),
             value: _disabled,
             onChanged: (value) => setState(() => _disabled = value),
+            title: const Text('Disabled'),
+            subtitle: const Text('Disabled users cannot authenticate.'),
           ),
-          const SizedBox(height: 12),
           const Card(
             child: Padding(
               padding: EdgeInsets.all(14),
-              child: Text('Group membership and fine-grained privileges are managed in Groups / Effective Privileges. Sentinel preserves those settings when editing a user.'),
+              child: Text(
+                'Existing direct privileges and advanced account settings are preserved when editing. Group membership is managed through Groups.',
+              ),
             ),
           ),
           const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: _busy ? null : _save,
             icon: _busy
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Icon(Icons.save_outlined),
             label: Text(editing ? 'Save changes' : 'Add user'),
           ),
@@ -603,8 +676,8 @@ class _UserEditorState extends State<_UserEditor> {
   }
 }
 
-class _GroupEditor extends StatefulWidget {
-  const _GroupEditor({
+class _GroupEditorScreen extends StatefulWidget {
+  const _GroupEditorScreen({
     required this.repository,
     required this.audit,
     required this.initial,
@@ -617,10 +690,10 @@ class _GroupEditor extends StatefulWidget {
   final FirewallGroupSummary? group;
 
   @override
-  State<_GroupEditor> createState() => _GroupEditorState();
+  State<_GroupEditorScreen> createState() => _GroupEditorScreenState();
 }
 
-class _GroupEditorState extends State<_GroupEditor> {
+class _GroupEditorScreenState extends State<_GroupEditorScreen> {
   late final TextEditingController _name;
   late final TextEditingController _description;
   late final TextEditingController _sourceNetworks;
@@ -629,9 +702,19 @@ class _GroupEditorState extends State<_GroupEditor> {
   @override
   void initState() {
     super.initState();
-    _name = TextEditingController(text: widget.initial['name']?.toString() ?? widget.group?.name ?? '');
-    _description = TextEditingController(text: widget.initial['description']?.toString() ?? widget.group?.description ?? '');
-    _sourceNetworks = TextEditingController(text: widget.initial['source_networks']?.toString() ?? widget.group?.sourceNetworks ?? '');
+    _name = TextEditingController(
+      text: widget.initial['name']?.toString() ?? widget.group?.name ?? '',
+    );
+    _description = TextEditingController(
+      text: widget.initial['description']?.toString() ??
+          widget.group?.description ??
+          '',
+    );
+    _sourceNetworks = TextEditingController(
+      text: widget.initial['source_networks']?.toString() ??
+          widget.group?.sourceNetworks ??
+          '',
+    );
   }
 
   @override
@@ -643,22 +726,24 @@ class _GroupEditorState extends State<_GroupEditor> {
   }
 
   Future<void> _save() async {
-    if (_name.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Group name is required.')));
-      return;
-    }
+    if (_name.text.trim().isEmpty) return;
     setState(() => _busy = true);
-    final data = <String, dynamic>{
+    final values = <String, dynamic>{
       'name': _name.text.trim(),
       'description': _description.text.trim(),
       'source_networks': _sourceNetworks.text.trim(),
-      'scope': widget.initial['scope']?.toString() ?? widget.group?.scope ?? 'user',
+      'scope': widget.initial['scope']?.toString() ??
+          widget.group?.scope ??
+          'user',
     };
     for (final key in const ['member', 'priv']) {
-      if (widget.initial[key] != null) data[key] = widget.initial[key];
+      if (widget.initial[key] != null) values[key] = widget.initial[key];
     }
     try {
-      await widget.repository.saveGroup(uuid: widget.group?.uuid, values: data);
+      await widget.repository.saveGroup(
+        uuid: widget.group?.uuid,
+        values: values,
+      );
       try {
         await widget.audit.record(
           action: widget.group == null ? 'Add group' : 'Edit group',
@@ -668,7 +753,11 @@ class _GroupEditorState extends State<_GroupEditor> {
       } catch (_) {}
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Unable to save group: $error')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to save group: $error')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -682,30 +771,41 @@ class _GroupEditorState extends State<_GroupEditor> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          TextField(controller: _name, decoration: const InputDecoration(labelText: 'Group name')),
+          TextField(
+            controller: _name,
+            decoration: const InputDecoration(labelText: 'Group name'),
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _description, decoration: const InputDecoration(labelText: 'Description')),
+          TextField(
+            controller: _description,
+            decoration: const InputDecoration(labelText: 'Description'),
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _sourceNetworks,
             maxLines: 3,
             decoration: const InputDecoration(
               labelText: 'Source networks',
-              hintText: 'Optional, comma-separated networks',
+              hintText: 'Optional network restrictions',
             ),
           ),
-          const SizedBox(height: 12),
           const Card(
             child: Padding(
               padding: EdgeInsets.all(14),
-              child: Text('Existing group members and privileges are preserved by Sentinel while editing basic group details.'),
+              child: Text(
+                'Existing members and privileges are preserved when editing basic group details.',
+              ),
             ),
           ),
           const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: _busy ? null : _save,
             icon: _busy
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Icon(Icons.save_outlined),
             label: Text(editing ? 'Save changes' : 'Add group'),
           ),
@@ -713,4 +813,118 @@ class _GroupEditorState extends State<_GroupEditor> {
       ),
     );
   }
+}
+
+class _Header extends StatelessWidget {
+  const _Header({
+    required this.title,
+    required this.subtitle,
+    required this.onAdd,
+  });
+
+  final String title;
+  final String subtitle;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          FilledButton.icon(
+            onPressed: onAdd,
+            icon: const Icon(Icons.add),
+            label: const Text('Add'),
+          ),
+        ],
+      );
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.label, required this.tone});
+  final String label;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: tone.withValues(alpha: .12),
+          borderRadius: BorderRadius.circular(99),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: tone,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+}
+
+class _EmptyCard extends StatelessWidget {
+  const _EmptyCard({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Text(text),
+        ),
+      );
+}
+
+class _ErrorPane extends StatelessWidget {
+  const _ErrorPane({
+    required this.title,
+    required this.error,
+    required this.onRetry,
+  });
+
+  final String title;
+  final Object? error;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.manage_accounts_outlined, size: 48),
+              const SizedBox(height: 12),
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text(error.toString(), textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
 }
