@@ -27,6 +27,32 @@ void main() {
     );
   });
 
+  test('extracts job id when JSON was returned as text', () {
+    expect(
+      DiagnosticsRepository.extractJobId(
+        '{"result":"ok","uuid":"job-text-123"}',
+      ),
+      'job-text-123',
+    );
+  });
+
+  test('recovers exactly one newly-created job id', () {
+    expect(
+      DiagnosticsRepository.findNewJobId(
+        {'job-1', 'job-2'},
+        {'job-1', 'job-2', 'job-3'},
+      ),
+      'job-3',
+    );
+    expect(
+      DiagnosticsRepository.findNewJobId(
+        {'job-1'},
+        {'job-1', 'job-2', 'job-3'},
+      ),
+      isEmpty,
+    );
+  });
+
   test('never treats result failed as a job id', () {
     expect(
       DiagnosticsRepository.extractJobId({'result': 'failed'}),
