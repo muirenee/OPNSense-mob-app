@@ -182,6 +182,42 @@ void main() {
     expect(jobs.first.output, contains('avg 12.2 ms'));
   });
 
+  test('treats stopped short ping with statistics as completed', () {
+    final jobs = DiagnosticsRepository.parseDiagnosticJobs({
+      'rows': [
+        {
+          'id': 'ping-2',
+          'hostname': '8.8.8.8',
+          'status': 'stopped',
+          'send': 4,
+          'received': 4,
+          'loss': '0.00 %',
+          'min': 8.1,
+          'avg': 9.2,
+          'max': 11.0,
+        },
+      ],
+    });
+
+    expect(jobs.single.status, 'completed');
+    expect(jobs.single.output, contains('4 sent'));
+    expect(jobs.single.output, contains('avg 9.2 ms'));
+  });
+
+  test('keeps stopped ping without any samples distinguishable', () {
+    final jobs = DiagnosticsRepository.parseDiagnosticJobs({
+      'rows': [
+        {
+          'id': 'ping-3',
+          'hostname': '203.0.113.1',
+          'status': 'stopped',
+        },
+      ],
+    });
+    expect(jobs.single.status, 'stopped');
+    expect(jobs.single.output, isEmpty);
+  });
+
   test('formats traceroute response hops', () {
     final output = DiagnosticsRepository.formatTracerouteResponse([
       {

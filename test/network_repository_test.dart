@@ -21,7 +21,33 @@ void main() {
     expect(gateways.first.loss, '0.0%');
   });
 
-  test('parses interface byte counters', () {
+  test('parses official OPNsense traffic counters by logical interface id', () {
+    final stats = NetworkRepository.parseInterfaceStatistics({
+      'time': 1786550000.25,
+      'interfaces': {
+        'wan': {
+          'name': 'MTN Main',
+          'bytes received': '1,000',
+          'bytes transmitted': 2500,
+          'packets received': 100,
+          'packets transmitted': 90,
+          'input errors': 2,
+          'output errors': 1,
+        },
+      },
+    });
+
+    expect(stats.keys, contains('wan'));
+    expect(stats.containsKey('MTN Main'), isFalse);
+    expect(stats['wan']?['rxBytes'], 1000);
+    expect(stats['wan']?['txBytes'], 2500);
+    expect(stats['wan']?['rxPackets'], 100);
+    expect(stats['wan']?['txPackets'], 90);
+    expect(stats['wan']?['inputErrors'], 2);
+    expect(stats['wan']?['outputErrors'], 1);
+  });
+
+  test('parses legacy interface byte counter names defensively', () {
     final stats = NetworkRepository.parseInterfaceStatistics({
       'em0': {
         'bytes received': '1,000',

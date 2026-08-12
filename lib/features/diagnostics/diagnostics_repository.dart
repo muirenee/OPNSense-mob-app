@@ -32,8 +32,6 @@ class DiagnosticsRepository {
     String family = 'inet',
     String sourceAddress = '',
   }) async {
-    // OPNsense executes traceroute synchronously inside this endpoint. A remote
-    // hop can therefore take substantially longer than a normal API request.
     final raw = await api.postData(
       '/api/diagnostics/traceroute/set',
       data: buildTraceroutePayload(
@@ -76,7 +74,29 @@ class DiagnosticsRepository {
       throw StateError('Ping API did not return a job UUID.');
     }
 
-    await Future<void>.delayed(sampleWindow);
+    // OPNsense's ping list action sends SIGINFO to a running ping process,
+    // which makes it write interim packet/loss/latency statistics. Sample the
+    // job while it is still running instead of waiting until after we kill it.
+    var best = created;
+    final deadline = DateTime.now().add(sampleWindow);
+    do {
+      final remaining = deadline.difference(DateTime.now());
+      if (!remaining.isNegative) {
+        final wait = remaining < const Duration(seconds: 1)
+            ? remaining
+            : const Duration(seconds: 1);
+        if (wait > Duration.zero) await Future<void>.delayed(wait);
+      }
+      try {
+        final sampled = _findJob(await loadPingJobs(), created.id);
+        if (sampled != null) {
+          if (sampled.output.isNotEmpty || best.output.isEmpty) best = sampled;
+          if (sampled.status.toLowerCase() == 'error') break;
+        }
+      } catch (_) {
+        // Sampling is best effort; stop/cleanup still happens below.
+      }
+    } while (DateTime.now().isBefore(deadline));
 
     try {
       await stopPing(created.id);
@@ -84,13 +104,18 @@ class DiagnosticsRepository {
       // Some firewall builds complete the short job before stop is requested.
     }
 
-    final jobs = await loadPingJobs();
-    DiagnosticJob result = created;
-    for (final job in jobs) {
-      if (job.id == created.id) {
-        result = job;
-        break;
+    // Give the daemon a moment to flush its final summary, then prefer it when
+    // available. A stopped job with valid statistics is a completed short test,
+    // not a failed ping.
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    try {
+      final finalJob = _findJob(await loadPingJobs(), created.id);
+      if (finalJob != null &&
+          (finalJob.output.isNotEmpty || best.output.isEmpty)) {
+        best = finalJob;
       }
+    } catch (_) {
+      // Preserve the best running sample gathered above.
     }
 
     try {
@@ -99,7 +124,14 @@ class DiagnosticsRepository {
       // Cleanup is best effort and should never hide valid statistics.
     }
 
-    return result;
+    return best;
+  }
+
+  static DiagnosticJob? _findJob(List<DiagnosticJob> jobs, String id) {
+    for (final job in jobs) {
+      if (job.id == id) return job;
+    }
+    return null;
   }
 
   Future<DiagnosticJob> createPingJob(
@@ -120,9 +152,6 @@ class DiagnosticsRepository {
 
     var id = extractJobId(raw);
     if (id.isEmpty && before != null) {
-      // Correct OPNsense 26.7 responses contain a top-level UUID. This fallback
-      // recovers the newly-created job when an intermediary strips/reformats
-      // that field while the firewall still persisted the job successfully.
       await Future<void>.delayed(const Duration(milliseconds: 150));
       final after = await _tryPingJobIds();
       if (after != null) id = findNewJobId(before, after);
@@ -440,13 +469,16 @@ class DiagnosticsRepository {
       );
       final rawStatus = firstString(row, const ['status', 'state']);
       final hasStats = sent.isNotEmpty || received.isNotEmpty || loss.isNotEmpty;
+      final normalizedRawStatus = rawStatus.toLowerCase();
       final status = lastError.isNotEmpty
           ? 'error'
-          : rawStatus.isNotEmpty
-              ? rawStatus
-              : hasStats
-                  ? 'completed'
-                  : 'running';
+          : hasStats && normalizedRawStatus == 'stopped'
+              ? 'completed'
+              : rawStatus.isNotEmpty
+                  ? rawStatus
+                  : hasStats
+                      ? 'completed'
+                      : 'running';
 
       final summary = <String>[
         if (sent.isNotEmpty || received.isNotEmpty)
@@ -487,9 +519,6 @@ class DiagnosticsRepository {
     final normalized = OpnSenseApiClient.normalizeResponseData(raw);
     if (normalized is Map) {
       final map = Map<String, dynamic>.from(normalized);
-      // A successful OPNsense set response commonly contains both
-      // `result: ok` and a top-level `uuid`. Always prefer explicit identifier
-      // fields; status words themselves are never treated as identifiers.
       final direct = firstString(
         map,
         const ['uuid', 'id', 'jobid', 'job_id'],

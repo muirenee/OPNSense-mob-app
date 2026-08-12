@@ -7,12 +7,13 @@ class NetworkRepository {
 
   final OpnSenseApiClient api;
 
+  static const String trafficPath = '/api/diagnostics/traffic/interface';
+
   Future<NetworkSnapshot> load() async {
     final results = await Future.wait<dynamic>([
       api.getData('/api/routes/gateway/status'),
-      api.getData('/api/interfaces/overview/interfaces_info',
-          queryParameters: const {'details': 'true'}),
-      api.getData('/api/diagnostics/interface/get_interface_statistics'),
+      api.getData('/api/interfaces/overview/interfaces_info'),
+      api.getData(trafficPath),
     ]);
 
     final gateways = parseGateways(results[0]);
@@ -41,9 +42,7 @@ class NetworkRepository {
   }
 
   Future<Map<String, Map<String, int?>>> loadInterfaceCounters() async {
-    final raw = await api.getData(
-      '/api/diagnostics/interface/get_interface_statistics',
-    );
+    final raw = await api.getData(trafficPath);
     return parseInterfaceStatistics(raw);
   }
 
@@ -63,18 +62,24 @@ class NetworkRepository {
     }).where((item) => item.name.isNotEmpty).toList();
   }
 
+  /// Parse OPNsense interface traffic into stable logical-interface keys.
+  ///
+  /// OPNsense 26.7 `/api/diagnostics/traffic/interface` returns a map under
+  /// `interfaces` whose key is the configured identifier (`wan`, `lan`, ...).
+  /// The nested `name` is the human description, so the map key must win when
+  /// associating counters with the interface overview.
   static Map<String, Map<String, int?>> parseInterfaceStatistics(dynamic raw) {
     final output = <String, Map<String, int?>>{};
     final rows = _rows(
       raw,
-      preferredKeys: const ['rows', 'interfaces', 'statistics', 'data'],
+      preferredKeys: const ['interfaces', 'rows', 'statistics', 'data'],
       includeMapKeys: true,
     );
 
     for (final row in rows) {
       final id = _firstString(
         row,
-        const ['identifier', 'name', 'interface', 'if', 'device', '_mapKey'],
+        const ['_mapKey', 'identifier', 'interface', 'if', 'device', 'name'],
       );
       if (id.isEmpty) continue;
       output[id] = {
@@ -86,7 +91,9 @@ class NetworkRepository {
           'inbytes',
         ]),
         'txBytes': _firstInt(row, const [
+          'bytes transmitted',
           'bytes sent',
+          'bytes_transmitted',
           'bytes_sent',
           'obytes',
           'tx_bytes',
@@ -97,24 +104,30 @@ class NetworkRepository {
           'packets_received',
           'ipackets',
           'rx_packets',
+          'inpkts',
         ]),
         'txPackets': _firstInt(row, const [
+          'packets transmitted',
           'packets sent',
+          'packets_transmitted',
           'packets_sent',
           'opackets',
           'tx_packets',
+          'outpkts',
         ]),
         'inputErrors': _firstInt(row, const [
           'input errors',
           'input_errors',
           'ierrors',
           'rx_errors',
+          'inerrs',
         ]),
         'outputErrors': _firstInt(row, const [
           'output errors',
           'output_errors',
           'oerrors',
           'tx_errors',
+          'outerrs',
         ]),
       };
     }

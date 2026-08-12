@@ -125,6 +125,19 @@ class DhcpRepository {
   static List<DhcpLeaseSummary> parseLeases(dynamic raw) {
     final rows = _rows(raw, const ['rows', 'leases', 'items', 'data']);
     return rows.map((row) {
+      final rawState = _rawFirst(row, const [
+        'state',
+        'status',
+        'binding-state',
+      ]);
+      final rawStart = _rawFirst(row, const ['starts', 'start', 'cltt']);
+      final rawEnd = _rawFirst(row, const [
+        'ends',
+        'end',
+        'expire',
+        'expiration',
+        'valid_lft',
+      ]);
       return DhcpLeaseSummary(
         ip: _first(row, const [
           'ip',
@@ -153,19 +166,9 @@ class DhcpRepository {
           'if_name',
           'if_descr',
         ]),
-        state: _first(row, const [
-          'state',
-          'status',
-          'binding-state',
-        ]),
-        starts: _first(row, const ['starts', 'start', 'cltt']),
-        ends: _first(row, const [
-          'ends',
-          'end',
-          'expire',
-          'expiration',
-          'valid_lft',
-        ]),
+        state: normalizeKeaState(rawState),
+        starts: formatKeaTimestamp(rawStart),
+        ends: formatKeaTimestamp(rawEnd),
         clientId: _first(row, const [
           'client-id',
           'client_id',
@@ -179,6 +182,51 @@ class DhcpRepository {
         source: 'Kea IPv4',
       );
     }).where((item) => item.ip.isNotEmpty).toList();
+  }
+
+  /// Kea state codes used by OPNsense 26.7.
+  /// 0 is the normal assigned/active state.
+  static String normalizeKeaState(dynamic value) {
+    final text = _text(value);
+    final code = int.tryParse(text);
+    switch (code) {
+      case 0:
+        return 'Assigned';
+      case 1:
+        return 'Declined';
+      case 2:
+        return 'Expired reclaimed';
+      case 3:
+        return 'Released';
+      case 4:
+        return 'Registered';
+    }
+    return text;
+  }
+
+  /// OPNsense renders Kea `expire` as a local Unix timestamp.
+  static String formatKeaTimestamp(dynamic value) {
+    if (value == null) return '';
+    if (value is num || value is String) {
+      final text = value.toString().trim();
+      if (text.isEmpty) return '';
+      final numeric = num.tryParse(text);
+      if (numeric != null) {
+        // Kea uses Unix seconds. Tolerate millisecond timestamps defensively.
+        final raw = numeric.toInt();
+        if (raw <= 0) return text;
+        final milliseconds = raw > 100000000000 ? raw : raw * 1000;
+        final local = DateTime.fromMillisecondsSinceEpoch(
+          milliseconds,
+          isUtc: true,
+        ).toLocal();
+        String two(int n) => n.toString().padLeft(2, '0');
+        return '${local.year.toString().padLeft(4, '0')}-${two(local.month)}-${two(local.day)} '
+            '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
+      }
+      return text;
+    }
+    return _text(value);
   }
 
   static List<KeaSubnetSummary> parseSubnets(dynamic raw) {
@@ -269,6 +317,13 @@ class DhcpRepository {
       }
     }
     return rows;
+  }
+
+  static dynamic _rawFirst(Map<String, dynamic> row, List<String> keys) {
+    for (final key in keys) {
+      if (row.containsKey(key) && row[key] != null) return row[key];
+    }
+    return null;
   }
 
   static String _first(Map<String, dynamic> row, List<String> keys) {
