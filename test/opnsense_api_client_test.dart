@@ -12,4 +12,17 @@ void main() {
       'https://fw.example.test',
     );
   });
+
+  test('decodes JSON response exposed as text', () {
+    final decoded = OpnSenseApiClient.normalizeResponseData(
+      '{"result":"ok","uuid":"job-123"}',
+    );
+    expect(decoded, isA<Map>());
+    expect((decoded as Map)['result'], 'ok');
+    expect(decoded['uuid'], 'job-123');
+  });
+
+  test('leaves ordinary text response untouched', () {
+    expect(OpnSenseApiClient.normalizeResponseData('plain output'), 'plain output');
+  });
 }

@@ -1,6 +1,5 @@
 import '../../../core/api/api_choice.dart';
 import '../../../core/api/opnsense_api_client.dart';
-import '../../../core/api/opnsense_exception.dart';
 import 'nat_models.dart';
 
 class NatRepository {
@@ -9,7 +8,7 @@ class NatRepository {
 
   Future<List<NatRuleSummary>> loadPortForwards() async {
     final raw = await api.getData(
-      '/api/firewall/d_nat/searchRule',
+      '/api/firewall/d_nat/search_rule',
       queryParameters: const {'current': 1, 'rowCount': 300},
     );
     return parse(raw, kind: NatRuleKind.portForward);
@@ -17,7 +16,7 @@ class NatRepository {
 
   Future<List<NatRuleSummary>> loadOutbound() async {
     final raw = await api.getData(
-      '/api/firewall/source_nat/searchRule',
+      '/api/firewall/source_nat/search_rule',
       queryParameters: const {'current': 1, 'rowCount': 300},
     );
     return parse(raw, kind: NatRuleKind.outbound);
@@ -39,7 +38,7 @@ class NatRepository {
     final suffix = uuid == null || uuid.isEmpty
         ? ''
         : '/${Uri.encodeComponent(uuid)}';
-    final raw = await api.getData('/api/firewall/$controller/getRule$suffix');
+    final raw = await api.getData('/api/firewall/$controller/get_rule$suffix');
     if (raw is Map) {
       final map = Map<String, dynamic>.from(raw);
       final model = map['rule'];
@@ -59,8 +58,8 @@ class NatRepository {
       controller: controller,
       change: () => api.postData(
         uuid == null || uuid.isEmpty
-            ? '/api/firewall/$controller/addRule'
-            : '/api/firewall/$controller/setRule/${Uri.encodeComponent(uuid)}',
+            ? '/api/firewall/$controller/add_rule'
+            : '/api/firewall/$controller/set_rule/${Uri.encodeComponent(uuid)}',
         data: {'rule': values},
       ),
     );
@@ -68,10 +67,15 @@ class NatRepository {
 
   Future<String> setEnabledSafely(NatRuleSummary rule, bool enabled) async {
     final controller = _controller(rule.kind);
+    // DNAT stores `disabled` and its toggle endpoint therefore accepts the
+    // opposite bit. Source NAT uses the normal `enabled` convention.
+    final toggleValue = rule.kind == NatRuleKind.portForward
+        ? (enabled ? 0 : 1)
+        : (enabled ? 1 : 0);
     return _changeSafelyController(
       controller: controller,
       change: () => api.postData(
-        '/api/firewall/$controller/toggleRule/${Uri.encodeComponent(rule.uuid)}/${enabled ? 0 : 1}',
+        '/api/firewall/$controller/toggle_rule/${Uri.encodeComponent(rule.uuid)}/$toggleValue',
       ),
     );
   }
@@ -81,7 +85,7 @@ class NatRepository {
     return _changeSafelyController(
       controller: controller,
       change: () => api.postData(
-        '/api/firewall/$controller/delRule/${Uri.encodeComponent(rule.uuid)}',
+        '/api/firewall/$controller/del_rule/${Uri.encodeComponent(rule.uuid)}',
       ),
     );
   }
@@ -96,26 +100,22 @@ class NatRepository {
       throw StateError('The firewall did not return a rollback revision.');
     }
 
-    await change();
-    await api.postData(
+    final changed = await change();
+    _ensureMutationSuccess(changed, 'NAT change');
+    final applied = await api.postData(
       '/api/firewall/$controller/apply/${Uri.encodeComponent(revision)}',
     );
+    _ensureMutationSuccess(applied, 'Apply NAT change');
 
     await api.getData(
-      '/api/firewall/$controller/searchRule',
+      '/api/firewall/$controller/search_rule',
       queryParameters: const {'current': 1, 'rowCount': 1},
     );
 
-    try {
-      await api.postData(
-        '/api/firewall/$controller/cancelRollback/${Uri.encodeComponent(revision)}',
-      );
-    } on OpnSenseException catch (error) {
-      if (error.statusCode != 404) rethrow;
-      await api.postData(
-        '/api/firewall/$controller/cancel_rollback/${Uri.encodeComponent(revision)}',
-      );
-    }
+    final cancelled = await api.postData(
+      '/api/firewall/$controller/cancel_rollback/${Uri.encodeComponent(revision)}',
+    );
+    _ensureMutationSuccess(cancelled, 'Cancel NAT rollback');
     return revision;
   }
 
@@ -193,8 +193,9 @@ class NatRepository {
               const ['target_port', 'local_port', 'local-port', 'nat_port'],
             ),
             description: _first(row, const ['description', 'descr', 'name']),
-            enabled: !_truthy(row['disabled']) &&
-                _truthy(row['enabled'], defaultValue: true),
+            enabled: kind == NatRuleKind.portForward
+                ? !_truthy(row['disabled'])
+                : _truthy(row['enabled'], defaultValue: true),
           ),
         )
         .toList();
@@ -256,5 +257,24 @@ class NatRepository {
       return false;
     }
     return defaultValue;
+  }
+
+  static void _ensureMutationSuccess(dynamic raw, String operation) {
+    if (raw is! Map) return;
+    final map = Map<String, dynamic>.from(raw);
+    final result = map['result']?.toString().trim().toLowerCase();
+    final status = map['status']?.toString().trim().toLowerCase();
+    if (result == 'failed' || status == 'failed' || status == 'error') {
+      final validations = map['validations'] ?? map['validation'];
+      final detail = validations is Map
+          ? validations.values
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .join(' · ')
+          : (map['message'] ?? map['error'] ?? '').toString().trim();
+      throw StateError(
+        detail.isEmpty ? '$operation failed.' : '$operation failed: $detail',
+      );
+    }
   }
 }

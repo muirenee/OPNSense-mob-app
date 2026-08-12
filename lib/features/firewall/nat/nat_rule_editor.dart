@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../../core/api/api_choice.dart';
 import '../../../core/widgets/api_select_fields.dart';
+import '../../../core/widgets/api_text_selector_field.dart';
 import '../../audit/audit_repository.dart';
+import '../firewall_reference_repository.dart';
 import 'nat_models.dart';
 import 'nat_repository.dart';
 
@@ -33,11 +35,16 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
   late final TextEditingController _target;
   late final TextEditingController _targetPort;
   List<ApiChoice> _interfaceChoices = const [];
+  List<ApiChoice> _networkChoices = const [];
+  List<ApiChoice> _portChoices = const [];
   Set<String> _interfaces = <String>{};
   String _ipProtocol = 'inet';
   String _protocol = 'tcp';
   String _reflection = '';
   String _pass = 'rule';
+  String _poolOptions = '';
+  bool _sourceNot = false;
+  bool _destinationNot = false;
   bool _enabled = true;
   bool _log = false;
   bool _busy = false;
@@ -66,7 +73,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
     _source = TextEditingController(
       text: scalar(
         const ['source.network', 'source_net'],
-        widget.rule?.source ?? '',
+        widget.rule?.source.isNotEmpty == true ? widget.rule!.source : 'any',
       ),
     );
     _sourcePort = TextEditingController(
@@ -78,7 +85,9 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
     _destination = TextEditingController(
       text: scalar(
         const ['destination.network', 'destination_net'],
-        widget.rule?.destination ?? 'wanip',
+        widget.rule?.destination.isNotEmpty == true
+            ? widget.rule!.destination
+            : 'wanip',
       ),
     );
     _destinationPort = TextEditingController(
@@ -113,6 +122,20 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
     }
     _pass = scalar(const ['pass'], 'rule');
     if (!const {'', 'pass', 'rule'}.contains(_pass)) _pass = 'rule';
+    _poolOptions = scalar(const ['poolopts'], '');
+    if (!const {
+      '',
+      'round-robin',
+      'round-robin sticky-address',
+      'random',
+      'random sticky-address',
+      'source-hash',
+      'bitmask',
+    }.contains(_poolOptions)) {
+      _poolOptions = '';
+    }
+    _sourceNot = _truthy(_read(widget.initial, 'source.not'));
+    _destinationNot = _truthy(_read(widget.initial, 'destination.not'));
     final disabled = _read(widget.initial, 'disabled');
     _enabled = disabled == null
         ? (widget.rule?.enabled ?? true)
@@ -138,10 +161,22 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
       final model = widget.rule == null
           ? await widget.repository.getDefaultRule(NatRuleKind.portForward)
           : await widget.repository.getRule(widget.rule!);
-      if (!mounted) return;
-      setState(() => _applyOptions(model));
+      if (mounted) setState(() => _applyOptions(model));
     } catch (_) {
-      // A manual fallback remains available if option metadata is unavailable.
+      // Manual interface fallback remains available if model access is denied.
+    }
+
+    try {
+      final references =
+          await FirewallReferenceRepository(widget.repository.api).load();
+      if (mounted) {
+        setState(() {
+          _networkChoices = references.networks;
+          _portChoices = references.ports;
+        });
+      }
+    } catch (_) {
+      // Manual network/port entry stays available without alias lookup ACL.
     } finally {
       if (mounted) setState(() => _optionsLoading = false);
     }
@@ -208,13 +243,16 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
       'source': {
         'network': _source.text.trim(),
         'port': _sourcePort.text.trim(),
+        'not': _sourceNot ? '1' : '0',
       },
       'destination': {
         'network': _destination.text.trim(),
         'port': _destinationPort.text.trim(),
+        'not': _destinationNot ? '1' : '0',
       },
       'target': _target.text.trim(),
       'local-port': _targetPort.text.trim(),
+      'poolopts': _poolOptions,
       'log': _log ? '1' : '0',
       'natreflection': _reflection,
       'pass': _pass,
@@ -328,50 +366,103 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
           const SizedBox(height: 16),
           _section(context, 'Source'),
           const SizedBox(height: 8),
-          TextField(
+          ApiTextSelectorField(
             controller: _source,
-            decoration: const InputDecoration(
-              labelText: 'Source network / alias',
-              hintText: 'Blank for any',
-            ),
+            label: 'Source network / alias',
+            choices: _networkChoices,
+            prefixIcon: Icons.call_made_outlined,
+            hintText: 'any, LAN net, IP/CIDR, alias',
+            helperText: 'Select a special network/address or alias, or type an IP/CIDR.',
+            searchHint: 'Search networks and aliases',
           ),
           const SizedBox(height: 10),
-          TextField(
+          ApiTextSelectorField(
             controller: _sourcePort,
-            decoration: const InputDecoration(
-              labelText: 'Source port / alias / range',
-            ),
+            label: 'Source port / alias / range',
+            choices: _portChoices,
+            prefixIcon: Icons.numbers_outlined,
+            hintText: 'any, https, 443, 10000-20000, PORT_ALIAS',
+            helperText: 'Service name, port alias, numeric port or range.',
+            searchHint: 'Search services and port aliases',
           ),
-          const SizedBox(height: 16),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Invert source'),
+            subtitle: const Text('Match everything except the specified source.'),
+            value: _sourceNot,
+            onChanged: (value) => setState(() => _sourceNot = value),
+          ),
+          const SizedBox(height: 8),
           _section(context, 'Destination'),
           const SizedBox(height: 8),
-          TextField(
+          ApiTextSelectorField(
             controller: _destination,
-            decoration: const InputDecoration(
-              labelText: 'Destination network / alias',
-              hintText: 'Example: wanip',
-            ),
+            label: 'Destination network / alias',
+            choices: _networkChoices,
+            prefixIcon: Icons.call_received_outlined,
+            hintText: 'WAN address, any, IP/CIDR, alias',
+            helperText: 'Select a special network/address or alias, or type an IP/CIDR.',
+            searchHint: 'Search networks and aliases',
           ),
           const SizedBox(height: 10),
-          TextField(
+          ApiTextSelectorField(
             controller: _destinationPort,
-            decoration: const InputDecoration(
-              labelText: 'Destination port / range',
-            ),
+            label: 'Destination port / alias / range',
+            choices: _portChoices,
+            prefixIcon: Icons.numbers_outlined,
+            hintText: 'https, 443, 5060, 10000-20000, PORT_ALIAS',
+            helperText: 'Service name, port alias, numeric port or range.',
+            searchHint: 'Search services and port aliases',
           ),
-          const SizedBox(height: 16),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Invert destination'),
+            subtitle: const Text('Match everything except the specified destination.'),
+            value: _destinationNot,
+            onChanged: (value) => setState(() => _destinationNot = value),
+          ),
+          const SizedBox(height: 8),
           _section(context, 'Redirect'),
           const SizedBox(height: 8),
-          TextField(
+          ApiTextSelectorField(
             controller: _target,
-            decoration: const InputDecoration(
-              labelText: 'Redirect target IP / alias',
-            ),
+            label: 'Redirect target IP / alias',
+            choices: _networkChoices,
+            prefixIcon: Icons.alt_route_outlined,
+            hintText: '10.0.0.10 or SERVER_ALIAS',
+            helperText: 'Internal target IP or a non-port firewall alias.',
+            searchHint: 'Search target aliases',
           ),
           const SizedBox(height: 10),
-          TextField(
+          ApiTextSelectorField(
             controller: _targetPort,
-            decoration: const InputDecoration(labelText: 'Redirect target port'),
+            label: 'Redirect target port',
+            choices: _portChoices,
+            prefixIcon: Icons.numbers_outlined,
+            hintText: 'any, https, 443, PORT_ALIAS',
+            helperText: 'Use any to preserve the destination port/range. A target range is calculated from its first port.',
+            searchHint: 'Search services and port aliases',
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _poolOptions,
+            decoration: const InputDecoration(labelText: 'Pool options'),
+            items: const [
+              DropdownMenuItem(value: '', child: Text('Default')),
+              DropdownMenuItem(value: 'round-robin', child: Text('Round Robin')),
+              DropdownMenuItem(
+                value: 'round-robin sticky-address',
+                child: Text('Round Robin + Sticky Address'),
+              ),
+              DropdownMenuItem(value: 'random', child: Text('Random')),
+              DropdownMenuItem(
+                value: 'random sticky-address',
+                child: Text('Random + Sticky Address'),
+              ),
+              DropdownMenuItem(value: 'source-hash', child: Text('Source Hash')),
+              DropdownMenuItem(value: 'bitmask', child: Text('Bitmask')),
+            ],
+            onChanged: (value) => setState(() => _poolOptions = value ?? ''),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
