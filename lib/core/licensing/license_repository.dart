@@ -12,14 +12,17 @@ class LicenseRepository extends ChangeNotifier {
   LicenseRepository({
     FlutterSecureStorage secureStorage = const FlutterSecureStorage(),
     String apiUrl = AppInfo.licenseApiUrl,
+    bool commercialLicensingEnabled = AppInfo.commercialLicensingEnabled,
   })  : _secureStorage = secureStorage,
-        _apiUrl = apiUrl.trim();
+        _apiUrl = apiUrl.trim(),
+        _commercialLicensingEnabled = commercialLicensingEnabled;
 
   static const _entitlementKey = 'sentinel_license_entitlement_v1';
   static const _installationIdKey = 'sentinel_installation_id_v1';
 
   final FlutterSecureStorage _secureStorage;
   final String _apiUrl;
+  final bool _commercialLicensingEnabled;
 
   LicenseEntitlement _entitlement = LicenseEntitlement.free();
   String _installationId = '';
@@ -30,7 +33,8 @@ class LicenseRepository extends ChangeNotifier {
   String get installationId => _installationId;
   bool get busy => _busy;
   String? get lastError => _lastError;
-  bool get serviceConfigured => _apiUrl.isNotEmpty;
+  bool get serviceConfigured =>
+      _commercialLicensingEnabled && _apiUrl.isNotEmpty;
 
   Future<void> initialize() async {
     _installationId = await _secureStorage.read(key: _installationIdKey) ?? '';
@@ -40,6 +44,15 @@ class LicenseRepository extends ChangeNotifier {
         key: _installationIdKey,
         value: _installationId,
       );
+    }
+
+    // The public Free release must stay Free even if this package was previously
+    // used for an internal build that cached a test/commercial entitlement.
+    // We deliberately keep the cached value in secure storage so a future build
+    // that explicitly enables commercial licensing can validate it again.
+    if (!_commercialLicensingEnabled) {
+      _entitlement = LicenseEntitlement.free();
+      return;
     }
 
     final raw = await _secureStorage.read(key: _entitlementKey);
@@ -105,7 +118,9 @@ class LicenseRepository extends ChangeNotifier {
 
   Future<void> deactivate() async {
     final previous = _entitlement;
-    if (_apiUrl.isNotEmpty && previous.leaseToken.isNotEmpty) {
+    if (_commercialLicensingEnabled &&
+        _apiUrl.isNotEmpty &&
+        previous.leaseToken.isNotEmpty) {
       try {
         await _dio().post<dynamic>(
           '/v1/licenses/deactivate',
@@ -183,10 +198,12 @@ class LicenseRepository extends ChangeNotifier {
   }
 
   void _requireService() {
+    if (!_commercialLicensingEnabled) {
+      throw StateError('Commercial licensing is not enabled in this Free build.');
+    }
     if (_apiUrl.isEmpty) {
       throw StateError(
-        'Commercial licensing is not configured in this build. '
-        'Set SENTINEL_LICENSE_API_URL when building the production release.',
+        'Commercial licensing is enabled but the licensing service URL is not configured.',
       );
     }
   }
