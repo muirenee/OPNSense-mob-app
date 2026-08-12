@@ -4,19 +4,26 @@
 
     <application
         android:label="Netsource Sentinel"
-        android:name="${applicationName}"
+        android:name=".SentinelApplication"
         android:icon="@mipmap/ic_launcher">
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="${admobAppId}" />
 
         <!--
-          Disable Google Mobile Ads eager ContentProvider initialization.
-          Sentinel initializes the native SDK itself, after Flutter and the
-          selected firewall shell are already running.
+          Google Mobile Ads and AndroidX WorkManager both install eager startup
+          providers. Real-device logs showed AndroidX Startup creating
+          WorkManager's WorkDatabase before MainActivity and crashing the whole
+          process. Sentinel owns initialization instead: both eager providers
+          are disabled and WorkManager is initialized on demand inside the
+          guarded ads runtime after the firewall UI is already alive.
         -->
         <provider
             android:name="com.google.android.gms.ads.MobileAdsInitProvider"
+            tools:node="remove" />
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
             tools:node="remove" />
 
         <activity
