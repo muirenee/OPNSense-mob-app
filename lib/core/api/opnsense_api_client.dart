@@ -22,12 +22,7 @@ class OpnSenseApiClient {
             connectTimeout: const Duration(seconds: 8),
             receiveTimeout: const Duration(seconds: 20),
             sendTimeout: const Duration(seconds: 20),
-            headers: {
-              HttpHeaders.authorizationHeader:
-                  'Basic ${base64Encode(utf8.encode('${credentials.apiKey}:${credentials.apiSecret}'))}',
-              HttpHeaders.acceptHeader: 'application/json',
-              HttpHeaders.contentTypeHeader: 'application/json',
-            },
+            headers: baseHeaders(credentials),
           ),
         ) {
     if (!profile.isDemo && profile.allowSelfSignedCertificate) {
@@ -46,6 +41,20 @@ class OpnSenseApiClient {
   final Dio _dio;
 
   FirewallProfile get profile => _profile;
+
+  /// Headers that are safe for every OPNsense API request.
+  ///
+  /// Do not set Content-Type globally. OPNsense parses an authenticated request
+  /// as JSON whenever that header is present, even for GET requests. A GET has
+  /// no body, so advertising application/json there makes OPNsense reject the
+  /// request as "Invalid JSON syntax" before the controller can run.
+  static Map<String, String> baseHeaders(FirewallCredentials credentials) {
+    return {
+      HttpHeaders.authorizationHeader:
+          'Basic ${base64Encode(utf8.encode('${credentials.apiKey}:${credentials.apiSecret}'))}',
+      HttpHeaders.acceptHeader: 'application/json',
+    };
+  }
 
   static String normalizeBaseUrl(String value) {
     var result = value.trim();
