@@ -54,7 +54,7 @@ class _ProfileGateState extends State<ProfileGate> {
     }
     _adInitializationScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future<void>.delayed(const Duration(milliseconds: 1200), () async {
+      Future<void>.delayed(const Duration(milliseconds: 3500), () async {
         if (!mounted) return;
         await widget.adService.initialize();
       });
