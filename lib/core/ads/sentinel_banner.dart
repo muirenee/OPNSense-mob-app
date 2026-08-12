@@ -20,8 +20,8 @@ class SentinelBanner extends StatefulWidget {
 
 class _SentinelBannerState extends State<SentinelBanner> {
   BannerAd? _banner;
-  int? _loadedWidth;
   bool _loading = false;
+  bool _failedForSession = false;
 
   @override
   void initState() {
@@ -36,6 +36,7 @@ class _SentinelBannerState extends State<SentinelBanner> {
       oldWidget.adService.removeListener(_onAdStateChanged);
       widget.adService.addListener(_onAdStateChanged);
       _disposeBanner();
+      _failedForSession = false;
     }
     if (!widget.visible && oldWidget.visible) _disposeBanner();
   }
@@ -56,91 +57,85 @@ class _SentinelBannerState extends State<SentinelBanner> {
   void _disposeBanner() {
     _banner?.dispose();
     _banner = null;
-    _loadedWidth = null;
     _loading = false;
   }
 
-  Future<void> _ensureBanner(int width) async {
+  Future<void> _ensureBanner() async {
     if (!mounted ||
         !widget.visible ||
         !AdConfig.enabled ||
         !widget.adService.canRequestAds ||
-        width <= 0 ||
         _loading ||
-        (_banner != null && _loadedWidth == width)) {
+        _failedForSession ||
+        _banner != null) {
       return;
     }
 
     _loading = true;
-    final size =
-        await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(width);
-    if (!mounted) return;
-    if (size == null) {
-      _loading = false;
-      return;
+    try {
+      late final BannerAd banner;
+      banner = BannerAd(
+        adUnitId: AdConfig.bannerAdUnitId,
+        request: const AdRequest(),
+        size: AdSize.banner,
+        listener: BannerAdListener(
+          onAdLoaded: (ad) {
+            if (!mounted || ad != banner) {
+              ad.dispose();
+              return;
+            }
+            setState(() {
+              _banner = banner;
+              _loading = false;
+            });
+          },
+          onAdFailedToLoad: (ad, error) {
+            ad.dispose();
+            if (!mounted) return;
+            setState(() {
+              _banner = null;
+              _loading = false;
+              _failedForSession = true;
+            });
+          },
+        ),
+      );
+      await banner.load();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _banner = null;
+        _loading = false;
+        _failedForSession = true;
+      });
     }
-
-    _banner?.dispose();
-    late final BannerAd banner;
-    banner = BannerAd(
-      adUnitId: AdConfig.bannerAdUnitId,
-      request: const AdRequest(),
-      size: size,
-      listener: BannerAdListener(
-        onAdLoaded: (ad) {
-          if (!mounted || ad != banner) return;
-          setState(() {
-            _banner = banner;
-            _loadedWidth = width;
-            _loading = false;
-          });
-        },
-        onAdFailedToLoad: (ad, error) {
-          ad.dispose();
-          if (!mounted) return;
-          setState(() {
-            _banner = null;
-            _loadedWidth = null;
-            _loading = false;
-          });
-        },
-      ),
-    );
-    await banner.load();
   }
 
   @override
   Widget build(BuildContext context) {
     if (!widget.visible ||
         !AdConfig.enabled ||
-        !widget.adService.canRequestAds) {
+        !widget.adService.canRequestAds ||
+        _failedForSession) {
       return const SizedBox.shrink();
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final available = constraints.maxWidth.isFinite
-            ? constraints.maxWidth
-            : MediaQuery.sizeOf(context).width;
-        final width = available.floor();
-        WidgetsBinding.instance.addPostFrameCallback((_) => _ensureBanner(width));
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureBanner());
 
-        final banner = _banner;
-        if (banner == null) return const SizedBox.shrink();
-        return SafeArea(
-          top: false,
-          child: ColoredBox(
-            color: Theme.of(context).colorScheme.surface,
-            child: Center(
-              child: SizedBox(
-                width: banner.size.width.toDouble(),
-                height: banner.size.height.toDouble(),
-                child: AdWidget(ad: banner),
-              ),
-            ),
+    final banner = _banner;
+    if (banner == null) return const SizedBox.shrink();
+    return SafeArea(
+      top: false,
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+        child: Center(
+          child: SizedBox(
+            width: banner.size.width.toDouble(),
+            height: banner.size.height.toDouble(),
+            child: AdWidget(ad: banner),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
