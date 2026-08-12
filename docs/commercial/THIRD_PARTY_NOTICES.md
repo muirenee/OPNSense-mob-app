@@ -8,11 +8,17 @@ Before publication, preserve the applicable OPNsense BSD license/copyright notic
 ## Flutter and Dart
 Netsource Sentinel is built with Flutter and Dart. Their source code and binary components are distributed under their applicable open-source licenses.
 
-## Direct Flutter dependencies in v1.0
+## Google Mobile Ads and consent services
+Netsource Sentinel Free integrates Google Mobile Ads / AdMob and Google's User Messaging Platform through the `google_mobile_ads` Flutter plugin. These components and services are subject to Google's applicable software licenses, service terms and privacy policies.
+
+The application uses Google-provided sample/test advertising identifiers in development and CI builds. A public production build must use the publisher's own AdMob application and ad-unit identifiers.
+
+## Direct Flutter dependencies in v1.1
 The current pubspec includes:
 - `cupertino_icons`
 - `dio`
 - `flutter_secure_storage`
+- `google_mobile_ads`
 - `shared_preferences`
 
 Each package and its transitive dependencies remains subject to its own license. A production release should generate an exact dependency-license inventory from the resolved lockfile and archive it with the release evidence.
@@ -23,5 +29,6 @@ Except for third-party components and material explicitly distributed under anot
 ## Release checklist for notices
 - Re-run dependency license inventory whenever `pubspec.lock` changes.
 - Keep attribution notices bundled in the application where a dependency license requires it.
+- Keep Google advertising/privacy disclosures aligned with the actual production SDK configuration.
 - Do not use the OPNsense logo or a derivative brand mark without confirming applicable trademark permission.
 - Keep the independent-product disclaimer in the Play listing and in-app legal page.
