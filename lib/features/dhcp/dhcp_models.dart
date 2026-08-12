@@ -24,9 +24,13 @@ class DhcpLeaseSummary {
   final String subnetId;
 
   bool get isActive {
-    final value = state.toLowerCase();
+    final value = state.toLowerCase().trim();
     if (value.isEmpty) return true;
-    return value.contains('active') ||
+    // Kea/OPNsense state 0 is the normal assigned lease. Keep the numeric
+    // check as a defensive fallback even though the repository renders it as
+    // "Assigned" for the UI.
+    return value == '0' ||
+        value.contains('active') ||
         value.contains('default') ||
         value.contains('assigned') ||
         value.contains('bound');
