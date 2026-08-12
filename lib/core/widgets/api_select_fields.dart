@@ -113,6 +113,7 @@ class ApiMultiSelectField extends StatelessWidget {
           prefixIcon: prefixIcon == null ? null : Icon(prefixIcon),
           suffixIcon: const Icon(Icons.arrow_drop_down),
           enabled: enabled,
+          floatingLabelBehavior: FloatingLabelBehavior.always,
         ),
         child: selectedChoices.isEmpty
             ? Text(
