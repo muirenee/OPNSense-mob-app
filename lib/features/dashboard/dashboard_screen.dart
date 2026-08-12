@@ -7,6 +7,7 @@ import '../services/services_screen.dart';
 import '../system/firmware_screen.dart';
 import 'dashboard_models.dart';
 import 'dashboard_repository.dart';
+import 'dashboard_traffic_card.dart';
 import 'memory_details_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -26,7 +27,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  late final DashboardRepository _repository;
+  late DashboardRepository _repository;
   late Future<DashboardSnapshot> _future;
 
   @override
@@ -145,6 +146,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ],
                   );
                 },
+              ),
+              const SizedBox(height: 12),
+              DashboardTrafficCard(
+                profile: widget.profile,
+                credentials: widget.credentials,
+                interfaces: data.interfaces,
               ),
               const SizedBox(height: 12),
               _InterfacesCard(
