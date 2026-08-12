@@ -54,7 +54,9 @@ class _ProfileGateState extends State<ProfileGate> {
     }
     _adInitializationScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future<void>.delayed(const Duration(milliseconds: 1200), () async {
+      // Give the real firewall shell time to become fully visible before any
+      // Google advertising class is loaded. Ads are optional; Sentinel is not.
+      Future<void>.delayed(const Duration(milliseconds: 2500), () async {
         if (!mounted) return;
         await widget.adService.initialize();
       });
