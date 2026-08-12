@@ -32,10 +32,13 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
   late final TextEditingController _sourcePort;
   late final TextEditingController _destination;
   late final TextEditingController _destinationPort;
+
   String _action = 'pass';
   String _direction = 'in';
   String _ipProtocol = 'inet';
-  String? _protocol;
+  String _protocol = 'any';
+  String _stateType = 'keep';
+
   Set<String> _interfaces = <String>{};
   List<ApiChoice> _interfaceChoices = const [];
   List<ApiChoice> _networkChoices = const [];
@@ -50,6 +53,16 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
     ApiChoice(value: 'esp', label: 'ESP'),
     ApiChoice(value: 'gre', label: 'GRE'),
   ];
+  List<ApiChoice> _stateTypeChoices = const [
+    ApiChoice(value: 'keep', label: 'Keep state'),
+    ApiChoice(value: 'sloppy', label: 'Sloppy state'),
+    ApiChoice(value: 'modulate', label: 'Modulate state'),
+    ApiChoice(value: 'synproxy', label: 'Synproxy state'),
+    ApiChoice(value: 'none', label: 'No state'),
+  ];
+
+  bool _quick = true;
+  bool _interfaceNot = false;
   bool _sourceNot = false;
   bool _destinationNot = false;
   bool _enabled = true;
@@ -60,120 +73,40 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
   @override
   void initState() {
     super.initState();
-    String value(List<String> keys, String fallback) {
-      for (final key in keys) {
-        final raw = widget.initial[key];
-        if (raw is String || raw is num) {
-          final text = raw.toString().trim();
-          if (text.isNotEmpty) return text;
-        }
-      }
-      return fallback;
-    }
 
-    _description = TextEditingController(
-      text: value(
-        const ['description', 'descr'],
-        widget.rule?.description ?? '',
-      ),
-    );
+    _description = TextEditingController(text: widget.rule?.description ?? '');
     _source = TextEditingController(
-      text: value(
-        const ['source_net', 'source'],
-        widget.rule?.source.isNotEmpty == true ? widget.rule!.source : 'any',
-      ),
+      text: widget.rule?.source.isNotEmpty == true ? widget.rule!.source : 'any',
     );
-    _sourcePort = TextEditingController(
-      text: value(const ['source_port'], widget.rule?.sourcePort ?? ''),
-    );
+    _sourcePort = TextEditingController(text: widget.rule?.sourcePort ?? '');
     _destination = TextEditingController(
-      text: value(
-        const ['destination_net', 'destination'],
-        widget.rule?.destination.isNotEmpty == true
-            ? widget.rule!.destination
-            : 'any',
-      ),
+      text: widget.rule?.destination.isNotEmpty == true
+          ? widget.rule!.destination
+          : 'any',
     );
     _destinationPort = TextEditingController(
-      text: value(
-        const ['destination_port'],
-        widget.rule?.destinationPort ?? '',
-      ),
+      text: widget.rule?.destinationPort ?? '',
     );
-    _action = value(
-      const ['action'],
-      widget.rule?.action.toLowerCase() ?? 'pass',
-    ).toLowerCase();
-    if (!const {'pass', 'block', 'reject'}.contains(_action)) _action = 'pass';
-    _direction = value(
-      const ['direction'],
-      widget.rule?.direction.toLowerCase() ?? 'in',
-    ).toLowerCase();
-    if (!const {'in', 'out', 'any'}.contains(_direction)) _direction = 'in';
-    _ipProtocol = value(const ['ipprotocol'], 'inet').toLowerCase();
-    if (!const {'inet', 'inet6', 'inet46'}.contains(_ipProtocol)) {
-      _ipProtocol = 'inet';
-    }
 
-    _sourceNot = _truthy(widget.initial['source_not'], false);
-    _destinationNot = _truthy(widget.initial['destination_not'], false);
-    _enabled = widget.rule?.enabled ?? _truthy(widget.initial['enabled'], true);
-    _logging = widget.rule?.logging ?? _truthy(widget.initial['log'], false);
-    _applyOptions(widget.initial);
-    _loadOptions();
-  }
-
-  void _applyOptions(Map<String, dynamic> model) {
-    final interfaces = FirewallRepository.choices(model, 'interface');
-    if (interfaces.isNotEmpty) _interfaceChoices = interfaces;
-    final selectedInterfaces = FirewallRepository.selectedChoices(
-      model,
-      'interface',
-    );
-    if (selectedInterfaces.isNotEmpty) _interfaces = selectedInterfaces;
-
-    final protocols = FirewallRepository.choices(model, 'protocol');
-    if (protocols.isNotEmpty) _protocolChoices = protocols;
-    _protocol ??= FirewallRepository.selectedChoice(model, 'protocol');
-
-    if (_interfaces.isEmpty && widget.rule?.interfaceName.isNotEmpty == true) {
-      _interfaces = _split(widget.rule!.interfaceName);
-    }
-    _protocol ??= widget.rule?.protocol.toLowerCase();
-    if (_protocol == null || _protocol!.isEmpty) _protocol = 'any';
-  }
-
-  Future<void> _loadOptions() async {
-    setState(() => _optionsLoading = true);
-    try {
-      final model = await widget.repository.getRule(widget.rule?.uuid);
-      if (mounted) setState(() => _applyOptions(model));
-    } catch (_) {
-      // Existing/fallback values remain usable when model access is denied.
-    }
-
-    try {
-      final references =
-          await FirewallReferenceRepository(widget.repository.api).load();
-      if (mounted) {
-        setState(() {
-          _networkChoices = references.networks;
-          _portChoices = references.ports;
-        });
+    if (widget.rule != null) {
+      final action = widget.rule!.action.toLowerCase();
+      if (const {'pass', 'block', 'reject'}.contains(action)) _action = action;
+      final direction = widget.rule!.direction.toLowerCase();
+      if (const {'in', 'out', 'any'}.contains(direction)) {
+        _direction = direction;
       }
-    } catch (_) {
-      // Manual address/port entry remains available without alias lookup ACL.
-    } finally {
-      if (mounted) setState(() => _optionsLoading = false);
+      if (widget.rule!.interfaceName.isNotEmpty) {
+        _interfaces = _split(widget.rule!.interfaceName);
+      }
+      if (widget.rule!.protocol.isNotEmpty) {
+        _protocol = widget.rule!.protocol.toLowerCase();
+      }
+      _enabled = widget.rule!.enabled;
+      _logging = widget.rule!.logging;
     }
-  }
 
-  bool _truthy(dynamic value, bool fallback) {
-    if (value == null) return fallback;
-    if (value is bool) return value;
-    if (value is num) return value != 0;
-    return const {'1', 'true', 'yes', 'on'}
-        .contains(value.toString().toLowerCase());
+    _applyModel(widget.initial, overwriteValues: true);
+    _loadOptions();
   }
 
   @override
@@ -186,46 +119,148 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
     super.dispose();
   }
 
+  void _applyModel(
+    Map<String, dynamic> model, {
+    required bool overwriteValues,
+  }) {
+    if (model.isEmpty) return;
+
+    final interfaces = FirewallRepository.choices(model, 'interface');
+    if (interfaces.isNotEmpty) _interfaceChoices = interfaces;
+
+    final protocols = FirewallRepository.choices(model, 'protocol');
+    if (protocols.isNotEmpty) _protocolChoices = protocols;
+
+    final stateTypes = FirewallRepository.choices(model, 'statetype');
+    if (stateTypes.isNotEmpty) _stateTypeChoices = stateTypes;
+
+    if (!overwriteValues) return;
+
+    final description = _scalarField(model, const ['description', 'descr']);
+    if (description != null) _description.text = description;
+
+    final source = _multiField(model, 'source_net');
+    if (source != null && source.isNotEmpty) _source.text = source;
+
+    final sourcePort = _singleField(model, 'source_port');
+    if (sourcePort != null) _sourcePort.text = _normalizePort(sourcePort);
+
+    final destination = _multiField(model, 'destination_net');
+    if (destination != null && destination.isNotEmpty) {
+      _destination.text = destination;
+    }
+
+    final destinationPort = _singleField(model, 'destination_port');
+    if (destinationPort != null) {
+      _destinationPort.text = _normalizePort(destinationPort);
+    }
+
+    _action = _validatedChoice(
+      _singleField(model, 'action'),
+      const {'pass', 'block', 'reject'},
+      _action,
+    );
+    _direction = _validatedChoice(
+      _singleField(model, 'direction'),
+      const {'in', 'out', 'any'},
+      _direction,
+    );
+    _ipProtocol = _validatedChoice(
+      _singleField(model, 'ipprotocol'),
+      const {'inet', 'inet6', 'inet46'},
+      _ipProtocol,
+    );
+
+    final protocol = _singleField(model, 'protocol');
+    if (protocol != null && protocol.isNotEmpty) _protocol = protocol;
+
+    final stateType = _singleField(model, 'statetype');
+    if (stateType != null && stateType.isNotEmpty) _stateType = stateType;
+
+    final selectedInterfaces = FirewallRepository.selectedChoices(
+      model,
+      'interface',
+    );
+    if (selectedInterfaces.isNotEmpty) _interfaces = selectedInterfaces;
+
+    _quick = _booleanField(model, 'quick', _quick);
+    _interfaceNot = _booleanField(model, 'interfacenot', _interfaceNot);
+    _sourceNot = _booleanField(model, 'source_not', _sourceNot);
+    _destinationNot = _booleanField(model, 'destination_not', _destinationNot);
+    _enabled = _booleanField(model, 'enabled', _enabled);
+    _logging = _booleanField(model, 'log', _logging);
+  }
+
+  Future<void> _loadOptions() async {
+    if (mounted) setState(() => _optionsLoading = true);
+
+    try {
+      // get_rule without a UUID returns OPNsense's real defaults and option
+      // inventories. With a UUID it returns the selected values for that rule.
+      final model = await widget.repository.getRule(widget.rule?.uuid);
+      if (mounted) {
+        setState(() => _applyModel(model, overwriteValues: true));
+      }
+    } catch (_) {
+      // Existing values remain editable even if model lookup is restricted.
+    }
+
+    try {
+      final references =
+          await FirewallReferenceRepository(widget.repository.api).load();
+      if (mounted) {
+        setState(() {
+          _networkChoices = references.networks;
+          _portChoices = references.ports;
+        });
+      }
+    } catch (_) {
+      // Manual IP/CIDR/port entry remains available without alias-list ACL.
+    } finally {
+      if (mounted) setState(() => _optionsLoading = false);
+    }
+  }
+
   Future<void> _save() async {
     if (_interfaces.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select at least one interface.')),
-      );
+      _showMessage('Select at least one interface.');
       return;
     }
-    if (_source.text.trim().isEmpty || _destination.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Source and destination are required. Use "any" when unrestricted.'),
-        ),
-      );
+
+    final source = _source.text.trim();
+    final destination = _destination.text.trim();
+    if (source.isEmpty || destination.isEmpty) {
+      _showMessage('Source and destination are required. Use "any" when unrestricted.');
       return;
     }
+
     setState(() => _busy = true);
-    final values = <String, dynamic>{
-      'description': _description.text.trim(),
-      'action': _action,
-      'direction': _direction,
-      'ipprotocol': _ipProtocol,
-      'protocol': _protocol ?? 'any',
-      'interface': _interfaces.toList()..sort(),
-      'source_net': _source.text.trim(),
-      'source_not': _sourceNot ? '1' : '0',
-      'source_port': _sourcePort.text.trim(),
-      'destination_net': _destination.text.trim(),
-      'destination_not': _destinationNot ? '1' : '0',
-      'destination_port': _destinationPort.text.trim(),
-      'enabled': _enabled ? '1' : '0',
-      'log': _logging ? '1' : '0',
-    };
-    if (values['interface'] is List) {
-      values['interface'] = (values['interface'] as List).join(',');
-    }
     try {
+      final values = <String, dynamic>{
+        'description': _description.text.trim(),
+        'action': _action,
+        'quick': _quick ? '1' : '0',
+        'interfacenot': _interfaceNot ? '1' : '0',
+        'interface': encodeApiChoiceValues(_interfaces),
+        'direction': _direction,
+        'ipprotocol': _ipProtocol,
+        'protocol': _protocol,
+        'statetype': _stateType,
+        'source_net': _normalizeNetworkList(source),
+        'source_not': _sourceNot ? '1' : '0',
+        'source_port': _normalizePort(_sourcePort.text),
+        'destination_net': _normalizeNetworkList(destination),
+        'destination_not': _destinationNot ? '1' : '0',
+        'destination_port': _normalizePort(_destinationPort.text),
+        'enabled': _enabled ? '1' : '0',
+        'log': _logging ? '1' : '0',
+      };
+
       final revision = await widget.repository.saveRuleSafely(
         uuid: widget.rule?.uuid,
         values: values,
       );
+
       try {
         await widget.audit.record(
           action: widget.rule == null
@@ -238,21 +273,23 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
           details: 'rollback revision $revision',
         );
       } catch (_) {}
+
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to save firewall rule: $error')),
-        );
-      }
+      if (mounted) _showMessage('Unable to save firewall rule: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final editing = widget.rule != null;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(editing ? 'Edit firewall rule' : 'Add firewall rule'),
@@ -260,28 +297,34 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (_optionsLoading) const LinearProgressIndicator(),
+          if (_optionsLoading) ...[
+            const LinearProgressIndicator(),
+            const SizedBox(height: 12),
+          ],
           TextField(
             controller: _description,
             decoration: const InputDecoration(labelText: 'Description'),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _action,
-            decoration: const InputDecoration(labelText: 'Action'),
-            items: const [
-              DropdownMenuItem(value: 'pass', child: Text('Pass')),
-              DropdownMenuItem(value: 'block', child: Text('Block')),
-              DropdownMenuItem(value: 'reject', child: Text('Reject')),
-            ],
-            onChanged: (value) => setState(() => _action = value ?? 'pass'),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  initialValue: _direction,
+                  value: _action,
+                  decoration: const InputDecoration(labelText: 'Action'),
+                  items: const [
+                    DropdownMenuItem(value: 'pass', child: Text('Pass')),
+                    DropdownMenuItem(value: 'block', child: Text('Block')),
+                    DropdownMenuItem(value: 'reject', child: Text('Reject')),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _action = value ?? 'pass'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _direction,
                   decoration: const InputDecoration(labelText: 'Direction'),
                   items: const [
                     DropdownMenuItem(value: 'in', child: Text('In')),
@@ -292,10 +335,14 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
                       setState(() => _direction = value ?? 'in'),
                 ),
               ),
-              const SizedBox(width: 12),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  initialValue: _ipProtocol,
+                  value: _ipProtocol,
                   decoration: const InputDecoration(labelText: 'IP version'),
                   items: const [
                     DropdownMenuItem(value: 'inet', child: Text('IPv4')),
@@ -306,16 +353,18 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
                       setState(() => _ipProtocol = value ?? 'inet'),
                 ),
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ApiSingleSelectField(
+                  label: 'Protocol',
+                  choices: _protocolChoices,
+                  value: _protocol,
+                  allowEmpty: false,
+                  onChanged: (value) =>
+                      setState(() => _protocol = value ?? 'any'),
+                ),
+              ),
             ],
-          ),
-          const SizedBox(height: 12),
-          ApiSingleSelectField(
-            label: 'Protocol',
-            choices: _protocolChoices,
-            value: _protocol,
-            allowEmpty: false,
-            prefixIcon: Icons.route_outlined,
-            onChanged: (value) => setState(() => _protocol = value),
           ),
           const SizedBox(height: 12),
           if (_interfaceChoices.isNotEmpty)
@@ -332,37 +381,51 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
               initialValue: _interfaces.join(','),
               decoration: const InputDecoration(
                 labelText: 'Interfaces',
-                hintText: 'Interface IDs separated by commas',
+                hintText: 'lan,wan,opt1',
               ),
               onChanged: (value) => _interfaces = _split(value),
             ),
-          const SizedBox(height: 16),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Invert interface'),
+            subtitle: const Text('Apply to all interfaces except the selected ones.'),
+            value: _interfaceNot,
+            onChanged: (value) => setState(() => _interfaceNot = value),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Quick'),
+            subtitle: const Text('Stop evaluating later rules when this rule matches.'),
+            value: _quick,
+            onChanged: (value) => setState(() => _quick = value),
+          ),
+          const SizedBox(height: 8),
           _section(context, 'Source'),
           const SizedBox(height: 8),
           ApiTextSelectorField(
             controller: _source,
-            label: 'Network / alias',
+            label: 'Source network / alias',
             choices: _networkChoices,
             allowMultiple: true,
             prefixIcon: Icons.call_made_outlined,
-            hintText: 'any, 192.168.1.0/24, alias_name',
-            helperText: 'Choose a known network/alias or type an IP/CIDR. Multiple values are comma-separated.',
-            searchHint: 'Search networks and aliases',
+            hintText: 'any, 192.168.1.0/24, LAN_NET',
+            helperText:
+                'Select OPNsense networks/aliases or type an IP, CIDR or alias. Multiple values use commas.',
+            searchHint: 'Search source networks and aliases',
           ),
           const SizedBox(height: 10),
           ApiTextSelectorField(
             controller: _sourcePort,
-            label: 'Port / alias / range',
+            label: 'Source port / alias / range',
             choices: _portChoices,
             prefixIcon: Icons.numbers_outlined,
-            hintText: 'any, https, 5060, 10000-20000, PORT_ALIAS',
-            helperText: 'Well-known service, port alias, number or range.',
+            hintText: 'https, 5060, 10000-20000, PORT_ALIAS',
+            helperText: 'Leave blank for Any. Select a service/port alias or enter a port/range.',
             searchHint: 'Search services and port aliases',
           ),
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
             title: const Text('Invert source'),
-            subtitle: const Text('Match everything except this source.'),
             value: _sourceNot,
             onChanged: (value) => setState(() => _sourceNot = value),
           ),
@@ -371,32 +434,42 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
           const SizedBox(height: 8),
           ApiTextSelectorField(
             controller: _destination,
-            label: 'Network / alias',
+            label: 'Destination network / alias',
             choices: _networkChoices,
             allowMultiple: true,
             prefixIcon: Icons.call_received_outlined,
-            hintText: 'any, WAN address, 10.0.0.0/24, alias_name',
-            helperText: 'Choose a known network/alias or type an IP/CIDR. Multiple values are comma-separated.',
-            searchHint: 'Search networks and aliases',
+            hintText: 'any, WAN address, 10.0.0.0/24, SERVER_ALIAS',
+            helperText:
+                'Select OPNsense networks/aliases or type an IP, CIDR or alias. Multiple values use commas.',
+            searchHint: 'Search destination networks and aliases',
           ),
           const SizedBox(height: 10),
           ApiTextSelectorField(
             controller: _destinationPort,
-            label: 'Port / alias / range',
+            label: 'Destination port / alias / range',
             choices: _portChoices,
             prefixIcon: Icons.numbers_outlined,
             hintText: 'https, 443, 5060, 10000-20000, PORT_ALIAS',
-            helperText: 'Well-known service, port alias, number or range.',
+            helperText: 'Leave blank for Any. Select a service/port alias or enter a port/range.',
             searchHint: 'Search services and port aliases',
           ),
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
             title: const Text('Invert destination'),
-            subtitle: const Text('Match everything except this destination.'),
             value: _destinationNot,
             onChanged: (value) => setState(() => _destinationNot = value),
           ),
           const SizedBox(height: 8),
+          _section(context, 'Rule options'),
+          const SizedBox(height: 8),
+          ApiSingleSelectField(
+            label: 'State type',
+            choices: _stateTypeChoices,
+            value: _stateType,
+            allowEmpty: false,
+            onChanged: (value) =>
+                setState(() => _stateType = value ?? 'keep'),
+          ),
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
             title: const Text('Enabled'),
@@ -414,13 +487,13 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
             child: Padding(
               padding: EdgeInsets.all(14),
               child: Text(
-                'Sentinel applies rule changes with firewall rollback protection and verifies management reachability before confirming the change.',
+                'Network, alias and port choices are loaded from OPNsense. Custom IP/CIDR/port/range values remain editable. Changes are applied with rollback protection.',
               ),
             ),
           ),
           const SizedBox(height: 18),
           FilledButton.icon(
-            onPressed: _busy ? null : _save,
+            onPressed: _busy || _optionsLoading ? null : _save,
             icon: _busy
                 ? const SizedBox(
                     width: 18,
@@ -435,17 +508,90 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
     );
   }
 
-  Widget _section(BuildContext context, String title) => Text(
-        title,
-        style: Theme.of(context)
-            .textTheme
-            .titleMedium
-            ?.copyWith(fontWeight: FontWeight.w800),
-      );
+  static Widget _section(BuildContext context, String title) {
+    return Text(
+      title,
+      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+    );
+  }
 
-  Set<String> _split(String value) => value
+  static Set<String> _split(String value) => value
       .split(',')
       .map((item) => item.trim())
       .where((item) => item.isNotEmpty)
       .toSet();
+
+  static String _validatedChoice(
+    String? value,
+    Set<String> allowed,
+    String fallback,
+  ) {
+    if (value == null || value.isEmpty) return fallback;
+    final normalized = value.toLowerCase();
+    return allowed.contains(normalized) ? normalized : fallback;
+  }
+
+  static String? _scalarField(
+    Map<String, dynamic> model,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final raw = model[key];
+      if (raw is String || raw is num || raw is bool) {
+        return raw.toString().trim();
+      }
+    }
+    return null;
+  }
+
+  static String? _singleField(Map<String, dynamic> model, String field) {
+    final selected = selectedApiChoiceValues(model[field]);
+    if (selected.isNotEmpty) return selected.first;
+    final raw = model[field];
+    if (raw is String || raw is num) return raw.toString().trim();
+    return null;
+  }
+
+  static String? _multiField(Map<String, dynamic> model, String field) {
+    final selected = selectedApiChoiceValues(model[field]);
+    if (selected.isNotEmpty) {
+      final values = selected.toList()..sort();
+      return values.join(',');
+    }
+    final raw = model[field];
+    if (raw is String || raw is num) return raw.toString().trim();
+    return null;
+  }
+
+  static bool _booleanField(
+    Map<String, dynamic> model,
+    String field,
+    bool fallback,
+  ) {
+    final value = _singleField(model, field)?.toLowerCase();
+    if (value == null || value.isEmpty) return fallback;
+    if (const {'1', 'true', 'yes', 'on', 'enabled'}.contains(value)) {
+      return true;
+    }
+    if (const {'0', 'false', 'no', 'off', 'disabled'}.contains(value)) {
+      return false;
+    }
+    return fallback;
+  }
+
+  static String _normalizePort(String value) {
+    final trimmed = value.trim();
+    return trimmed.toLowerCase() == 'any' ? '' : trimmed;
+  }
+
+  static String _normalizeNetworkList(String value) {
+    final values = value
+        .split(',')
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+    return values.join(',');
+  }
 }
