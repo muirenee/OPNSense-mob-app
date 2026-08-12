@@ -33,11 +33,44 @@ class FirewallRepository {
     return <String, dynamic>{};
   }
 
+  /// Returns the real interface/group values published by OPNsense's firewall
+  /// UI. Synthetic grid filters such as __floating and __any are deliberately
+  /// not returned as rule interface values.
+  Future<List<ApiChoice>> loadInterfaceChoices() async {
+    final raw = await api.getData('/api/firewall/filter/get_interface_list');
+    if (raw is! Map) return const <ApiChoice>[];
+
+    final byValue = <String, ApiChoice>{};
+    final map = Map<String, dynamic>.from(raw);
+    for (final groupName in const ['groups', 'interfaces']) {
+      final group = map[groupName];
+      if (group is! Map) continue;
+      final items = group['items'];
+      if (items is List) {
+        for (final item in items) {
+          if (item is! Map) continue;
+          final row = Map<String, dynamic>.from(item);
+          final value = row['value']?.toString().trim() ?? '';
+          if (value.isEmpty || value.startsWith('__')) continue;
+          final label = row['label']?.toString().trim() ?? value;
+          byValue[value] = ApiChoice(
+            value: value,
+            label: groupName == 'groups' ? '$label · group' : label,
+          );
+        }
+      }
+    }
+
+    final result = byValue.values.toList()
+      ..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+    return result;
+  }
+
   Future<String> saveRuleSafely({
     String? uuid,
     required Map<String, dynamic> values,
   }) async {
-    return _changeSafely(() async {
+    return _changeAndApply(() {
       return api.postData(
         uuid == null || uuid.isEmpty
             ? '/api/firewall/filter/add_rule'
@@ -49,7 +82,7 @@ class FirewallRepository {
 
   Future<String> deleteRuleSafely(FirewallRuleSummary rule) async {
     if (rule.uuid.isEmpty) throw StateError('Firewall rule UUID is missing.');
-    return _changeSafely(
+    return _changeAndApply(
       () => api.postData(
         '/api/firewall/filter/del_rule/${Uri.encodeComponent(rule.uuid)}',
       ),
@@ -63,37 +96,27 @@ class FirewallRepository {
     if (rule.uuid.isEmpty) {
       throw StateError('The selected rule does not have a UUID.');
     }
-    return _changeSafely(
+    return _changeAndApply(
       () => api.postData(
         '/api/firewall/filter/toggle_rule/${Uri.encodeComponent(rule.uuid)}/${enabled ? 1 : 0}',
       ),
     );
   }
 
-  Future<String> _changeSafely(Future<dynamic> Function() change) async {
-    final savepoint = await api.postJson('/api/firewall/filter/savepoint');
-    final revision = _first(savepoint, const ['revision', 'timestamp', 'id']);
-    if (revision.isEmpty) {
-      throw StateError('The firewall did not return a rollback revision.');
-    }
-
+  /// OPNsense 26.7 firewall controllers persist the model mutation first and
+  /// expose a separate POST /apply action. They do not expose the savepoint /
+  /// cancel_rollback transaction endpoints previously assumed by Sentinel.
+  Future<String> _changeAndApply(Future<dynamic> Function() change) async {
     final changed = await change();
     _ensureMutationSuccess(changed, 'Firewall change');
-    final applied = await api.postData(
-      '/api/firewall/filter/apply/${Uri.encodeComponent(revision)}',
-    );
+
+    final applied = await api.postData('/api/firewall/filter/apply');
     _ensureMutationSuccess(applied, 'Apply firewall change');
 
-    // Verify management API reachability before cancelling the rollback timer.
-    await api.getData(
-      '/api/firewall/filter/search_rule',
-      queryParameters: const {'current': 1, 'rowCount': 1},
-    );
-    final cancelled = await api.postData(
-      '/api/firewall/filter/cancel_rollback/${Uri.encodeComponent(revision)}',
-    );
-    _ensureMutationSuccess(cancelled, 'Cancel firewall rollback');
-    return revision;
+    final uuid = changed is Map
+        ? _first(Map<String, dynamic>.from(changed), const ['uuid'])
+        : '';
+    return uuid.isEmpty ? 'applied' : uuid;
   }
 
   static List<ApiChoice> choices(Map<String, dynamic> model, String field) =>
@@ -114,8 +137,67 @@ class FirewallRepository {
       if (choice.selected) return choice.value;
     }
     final raw = model[field];
-    if (raw is String && raw.trim().isNotEmpty) return raw.trim();
+    if (raw is String || raw is num || raw is bool) {
+      final value = raw.toString().trim();
+      if (value.isNotEmpty) return value;
+    }
+    if (raw is Map) {
+      final direct = raw['value'];
+      if (direct is String || direct is num) {
+        final value = direct.toString().trim();
+        if (value.isNotEmpty) return value;
+      }
+    }
     return null;
+  }
+
+  static String fieldValue(
+    Map<String, dynamic> model,
+    String field, {
+    String fallback = '',
+  }) =>
+      selectedChoice(model, field) ?? fallback;
+
+  /// ProtocolField values in OPNsense are case-sensitive. In particular, its
+  /// validation explicitly checks TCP, UDP and TCP/UDP when ports are used.
+  static String normalizeProtocol(String? value) {
+    final text = value?.trim() ?? '';
+    switch (text.toLowerCase()) {
+      case '':
+      case 'any':
+        return 'any';
+      case 'tcp':
+        return 'TCP';
+      case 'udp':
+        return 'UDP';
+      case 'tcp/udp':
+      case 'tcp_udp':
+        return 'TCP/UDP';
+      case 'icmp':
+        return 'ICMP';
+      case 'icmp6':
+      case 'icmpv6':
+      case 'ipv6-icmp':
+        return 'IPV6-ICMP';
+      case 'esp':
+        return 'ESP';
+      case 'gre':
+        return 'GRE';
+      default:
+        return text;
+    }
+  }
+
+  static bool protocolSupportsPorts(String? value) {
+    final protocol = normalizeProtocol(value);
+    return const {'TCP', 'UDP', 'TCP/UDP'}.contains(protocol);
+  }
+
+  /// OPNsense PortField represents an unrestricted port with an empty value.
+  /// Accept the user-friendly word "any" but never submit it as a port name.
+  static String normalizePort(String value) {
+    final text = value.trim();
+    return text.toLowerCase() == 'any' ? '' : text;
   }
 
   static List<FirewallRuleSummary> parseRules(dynamic raw) {
@@ -190,20 +272,32 @@ class FirewallRepository {
   }
 
   static void _ensureMutationSuccess(dynamic raw, String operation) {
-    if (raw is! Map) return;
-    final map = Map<String, dynamic>.from(raw);
+    final normalized = OpnSenseApiClient.normalizeResponseData(raw);
+    if (normalized is! Map) return;
+    final map = Map<String, dynamic>.from(normalized);
     final result = map['result']?.toString().trim().toLowerCase();
     final status = map['status']?.toString().trim().toLowerCase();
     if (result == 'failed' || status == 'failed' || status == 'error') {
       final validations = map['validations'] ?? map['validation'];
-      final detail = validations is Map
-          ? validations.values
-              .map((value) => value.toString().trim())
-              .where((value) => value.isNotEmpty)
-              .join(' · ')
-          : (map['message'] ?? map['error'] ?? '').toString().trim();
+      final details = <String>[];
+      if (validations is Map) {
+        for (final entry in validations.entries) {
+          final value = entry.value;
+          if (value is List) {
+            details.addAll(value.map((item) => item.toString().trim()));
+          } else if (value != null) {
+            details.add(value.toString().trim());
+          }
+        }
+      }
+      final fallback = (map['message'] ?? map['error'] ?? '').toString().trim();
+      final detail = details.where((value) => value.isNotEmpty).join(' · ');
       throw StateError(
-        detail.isEmpty ? '$operation failed.' : '$operation failed: $detail',
+        detail.isNotEmpty
+            ? '$operation failed: $detail'
+            : fallback.isNotEmpty
+                ? '$operation failed: $fallback'
+                : '$operation failed.',
       );
     }
   }
