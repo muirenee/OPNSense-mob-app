@@ -1,6 +1,5 @@
 import '../../core/api/api_choice.dart';
 import '../../core/api/opnsense_api_client.dart';
-import '../../core/api/opnsense_exception.dart';
 import 'firewall_models.dart';
 
 class FirewallRepository {
@@ -10,7 +9,7 @@ class FirewallRepository {
 
   Future<List<FirewallRuleSummary>> loadRules({String search = ''}) async {
     final raw = await api.getData(
-      '/api/firewall/filter/searchRule',
+      '/api/firewall/filter/search_rule',
       queryParameters: {
         'current': 1,
         'rowCount': 200,
@@ -24,7 +23,7 @@ class FirewallRepository {
     final suffix = uuid == null || uuid.isEmpty
         ? ''
         : '/${Uri.encodeComponent(uuid)}';
-    final raw = await api.getData('/api/firewall/filter/getRule$suffix');
+    final raw = await api.getData('/api/firewall/filter/get_rule$suffix');
     if (raw is Map) {
       final map = Map<String, dynamic>.from(raw);
       final rule = map['rule'];
@@ -41,8 +40,8 @@ class FirewallRepository {
     return _changeSafely(() async {
       return api.postData(
         uuid == null || uuid.isEmpty
-            ? '/api/firewall/filter/addRule'
-            : '/api/firewall/filter/setRule/${Uri.encodeComponent(uuid)}',
+            ? '/api/firewall/filter/add_rule'
+            : '/api/firewall/filter/set_rule/${Uri.encodeComponent(uuid)}',
         data: {'rule': values},
       );
     });
@@ -52,7 +51,7 @@ class FirewallRepository {
     if (rule.uuid.isEmpty) throw StateError('Firewall rule UUID is missing.');
     return _changeSafely(
       () => api.postData(
-        '/api/firewall/filter/delRule/${Uri.encodeComponent(rule.uuid)}',
+        '/api/firewall/filter/del_rule/${Uri.encodeComponent(rule.uuid)}',
       ),
     );
   }
@@ -66,7 +65,7 @@ class FirewallRepository {
     }
     return _changeSafely(
       () => api.postData(
-        '/api/firewall/filter/toggleRule/${Uri.encodeComponent(rule.uuid)}/${enabled ? 1 : 0}',
+        '/api/firewall/filter/toggle_rule/${Uri.encodeComponent(rule.uuid)}/${enabled ? 1 : 0}',
       ),
     );
   }
@@ -78,25 +77,22 @@ class FirewallRepository {
       throw StateError('The firewall did not return a rollback revision.');
     }
 
-    await change();
-    await api.postData(
+    final changed = await change();
+    _ensureMutationSuccess(changed, 'Firewall change');
+    final applied = await api.postData(
       '/api/firewall/filter/apply/${Uri.encodeComponent(revision)}',
     );
+    _ensureMutationSuccess(applied, 'Apply firewall change');
 
+    // Verify management API reachability before cancelling the rollback timer.
     await api.getData(
-      '/api/firewall/filter/searchRule',
+      '/api/firewall/filter/search_rule',
       queryParameters: const {'current': 1, 'rowCount': 1},
     );
-    try {
-      await api.postData(
-        '/api/firewall/filter/cancelRollback/${Uri.encodeComponent(revision)}',
-      );
-    } on OpnSenseException catch (error) {
-      if (error.statusCode != 404) rethrow;
-      await api.postData(
-        '/api/firewall/filter/cancel_rollback/${Uri.encodeComponent(revision)}',
-      );
-    }
+    final cancelled = await api.postData(
+      '/api/firewall/filter/cancel_rollback/${Uri.encodeComponent(revision)}',
+    );
+    _ensureMutationSuccess(cancelled, 'Cancel firewall rollback');
     return revision;
   }
 
@@ -191,5 +187,24 @@ class FirewallRepository {
       return false;
     }
     return defaultValue;
+  }
+
+  static void _ensureMutationSuccess(dynamic raw, String operation) {
+    if (raw is! Map) return;
+    final map = Map<String, dynamic>.from(raw);
+    final result = map['result']?.toString().trim().toLowerCase();
+    final status = map['status']?.toString().trim().toLowerCase();
+    if (result == 'failed' || status == 'failed' || status == 'error') {
+      final validations = map['validations'] ?? map['validation'];
+      final detail = validations is Map
+          ? validations.values
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .join(' · ')
+          : (map['message'] ?? map['error'] ?? '').toString().trim();
+      throw StateError(
+        detail.isEmpty ? '$operation failed.' : '$operation failed: $detail',
+      );
+    }
   }
 }
