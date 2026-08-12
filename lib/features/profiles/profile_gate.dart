@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/ads/ad_service.dart';
+import '../../core/app_info.dart';
 import '../../core/licensing/license_repository.dart';
 import '../../core/storage/profile_repository.dart';
 import '../shell/main_shell.dart';
@@ -28,6 +29,8 @@ class ProfileGate extends StatefulWidget {
 }
 
 class _ProfileGateState extends State<ProfileGate> {
+  bool _adInitializationScheduled = false;
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +44,22 @@ class _ProfileGateState extends State<ProfileGate> {
   }
 
   void _onRepositoryChanged() => setState(() {});
+
+  void _scheduleAdInitialization(FirewallProfile profile) {
+    if (_adInitializationScheduled ||
+        profile.isDemo ||
+        !AppInfo.adsEnabled ||
+        !widget.licenseRepository.entitlement.adsEnabled) {
+      return;
+    }
+    _adInitializationScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 1200), () async {
+        if (!mounted) return;
+        await widget.adService.initialize();
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +85,8 @@ class _ProfileGateState extends State<ProfileGate> {
             initialProfile: selected,
           );
         }
+
+        _scheduleAdInitialization(selected);
         return MainShell(
           repository: widget.repository,
           licenseRepository: widget.licenseRepository,
