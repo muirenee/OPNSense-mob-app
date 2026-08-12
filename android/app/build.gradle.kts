@@ -35,7 +35,7 @@ android {
 
     defaultConfig {
         applicationId = "com.netsource.sentinel"
-        minSdk = flutter.minSdkVersion
+        minSdk = 23
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -65,6 +65,14 @@ android {
             }
         }
     }
+}
+
+dependencies {
+    // Keep Google advertising native-only. The Flutter google_mobile_ads plugin
+    // caused a launch-time crash on the field test device, so Sentinel owns the
+    // bridge and loads these classes only after the app shell is already alive.
+    implementation("com.google.android.gms:play-services-ads:25.4.0")
+    implementation("com.google.android.ump:user-messaging-platform:4.0.0")
 }
 
 kotlin {
