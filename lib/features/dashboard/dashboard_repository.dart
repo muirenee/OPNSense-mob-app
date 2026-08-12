@@ -7,19 +7,35 @@ class DashboardRepository {
   final OpnSenseApiClient api;
 
   Future<DashboardSnapshot> load() async {
-    final results = await Future.wait<Map<String, dynamic>>([
-      api.getJson('/api/diagnostics/system/system_information'),
-      api.getJson('/api/diagnostics/system/system_resources'),
-      api.getJson('/api/diagnostics/system/system_disk'),
-      api.getJson('/api/interfaces/overview/interfaces_info?details=true'),
+    // Keep the connection/authentication probe authoritative, but do not let
+    // one optional dashboard card make the complete dashboard unavailable.
+    // OPNsense 26.7 exposes interfaces_info with the detail flag as a PATH
+    // argument (interfaces_info/1), not a ?details=true query argument. The
+    // dashboard does not need the expensive detailed statistics, so use the
+    // normal endpoint here.
+    final systemInformation =
+        await api.getJson('/api/diagnostics/system/system_information');
+
+    final optional = await Future.wait<Map<String, dynamic>>([
+      _safeGetJson('/api/diagnostics/system/system_resources'),
+      _safeGetJson('/api/diagnostics/system/system_disk'),
+      _safeGetJson('/api/interfaces/overview/interfaces_info'),
     ]);
 
     return DashboardSnapshot(
-      systemInformation: results[0],
-      memory: results[1],
-      disk: results[2],
-      interfaces: parseInterfaces(results[3]),
+      systemInformation: systemInformation,
+      memory: optional[0],
+      disk: optional[1],
+      interfaces: parseInterfaces(optional[2]),
     );
+  }
+
+  Future<Map<String, dynamic>> _safeGetJson(String path) async {
+    try {
+      return await api.getJson(path);
+    } catch (_) {
+      return <String, dynamic>{};
+    }
   }
 
   static List<InterfaceSummary> parseInterfaces(Map<String, dynamic> raw) {
@@ -75,14 +91,46 @@ class DashboardRepository {
 
   static List<String> _extractAddresses(Map<String, dynamic> item) {
     final addresses = <String>[];
-    for (final key in ['ipaddr', 'ipaddrv6', 'address', 'ipv4', 'ipv6']) {
-      final value = item[key];
-      if (value is String && value.trim().isNotEmpty) {
-        addresses.add(value.trim());
-      } else if (value is List) {
-        addresses.addAll(value.whereType<String>().where((v) => v.isNotEmpty));
+
+    void add(dynamic value) {
+      if (value is String) {
+        final text = value.trim();
+        if (text.isNotEmpty) addresses.add(text);
+        return;
+      }
+      if (value is List) {
+        for (final entry in value) {
+          add(entry);
+        }
+        return;
+      }
+      if (value is Map) {
+        final map = Map<String, dynamic>.from(value);
+        final ip = map['ipaddr'] ?? map['address'];
+        if (ip != null && ip.toString().trim().isNotEmpty) {
+          var text = ip.toString().trim();
+          final bits = map['subnetbits'] ?? map['bits'];
+          if (bits != null &&
+              bits.toString().trim().isNotEmpty &&
+              !text.contains('/')) {
+            text = '$text/${bits.toString().trim()}';
+          }
+          addresses.add(text);
+        }
       }
     }
-    return addresses.toSet().toList();
+
+    for (final key in const [
+      'addr4',
+      'addr6',
+      'ipaddr',
+      'ipaddrv6',
+      'address',
+      'ipv4',
+      'ipv6',
+    ]) {
+      add(item[key]);
+    }
+    return addresses.where((value) => value.isNotEmpty).toSet().toList();
   }
 }
