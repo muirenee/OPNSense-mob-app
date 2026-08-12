@@ -20,12 +20,13 @@ class OpnSenseApiClient {
                 ? 'https://demo.invalid'
                 : normalizeBaseUrl(profile.baseUrl),
             connectTimeout: const Duration(seconds: 8),
-            receiveTimeout: const Duration(seconds: 12),
-            sendTimeout: const Duration(seconds: 12),
+            receiveTimeout: const Duration(seconds: 20),
+            sendTimeout: const Duration(seconds: 20),
             headers: {
               HttpHeaders.authorizationHeader:
                   'Basic ${base64Encode(utf8.encode('${credentials.apiKey}:${credentials.apiSecret}'))}',
               HttpHeaders.acceptHeader: 'application/json',
+              HttpHeaders.contentTypeHeader: 'application/json',
             },
           ),
         ) {
@@ -61,6 +62,7 @@ class OpnSenseApiClient {
   Future<dynamic> getData(
     String path, {
     Map<String, dynamic>? queryParameters,
+    Duration? receiveTimeout,
   }) async {
     if (_demo != null) {
       return _demo.getData(path, queryParameters: queryParameters);
@@ -69,8 +71,11 @@ class OpnSenseApiClient {
       final response = await _dio.get<dynamic>(
         path,
         queryParameters: queryParameters,
+        options: receiveTimeout == null
+            ? null
+            : Options(receiveTimeout: receiveTimeout),
       );
-      return response.data;
+      return normalizeResponseData(response.data);
     } on DioException catch (error) {
       throw _mapDioError(error);
     }
@@ -79,14 +84,20 @@ class OpnSenseApiClient {
   Future<Map<String, dynamic>> getJson(
     String path, {
     Map<String, dynamic>? queryParameters,
+    Duration? receiveTimeout,
   }) async {
-    final data = await getData(path, queryParameters: queryParameters);
+    final data = await getData(
+      path,
+      queryParameters: queryParameters,
+      receiveTimeout: receiveTimeout,
+    );
     return _toMap(data);
   }
 
   Future<List<int>> getBytes(
     String path, {
     Map<String, dynamic>? queryParameters,
+    Duration? receiveTimeout,
   }) async {
     if (_demo != null) {
       return _demo.getBytes(path, queryParameters: queryParameters);
@@ -95,7 +106,10 @@ class OpnSenseApiClient {
       final response = await _dio.get<List<int>>(
         path,
         queryParameters: queryParameters,
-        options: Options(responseType: ResponseType.bytes),
+        options: Options(
+          responseType: ResponseType.bytes,
+          receiveTimeout: receiveTimeout,
+        ),
       );
       return response.data ?? <int>[];
     } on DioException catch (error) {
@@ -107,6 +121,7 @@ class OpnSenseApiClient {
     String path, {
     Map<String, dynamic>? data,
     Map<String, dynamic>? queryParameters,
+    Duration? receiveTimeout,
   }) async {
     if (_demo != null) {
       return _demo.postData(
@@ -120,8 +135,11 @@ class OpnSenseApiClient {
         path,
         data: data ?? {},
         queryParameters: queryParameters,
+        options: receiveTimeout == null
+            ? null
+            : Options(receiveTimeout: receiveTimeout),
       );
-      return response.data;
+      return normalizeResponseData(response.data);
     } on DioException catch (error) {
       throw _mapDioError(error);
     }
@@ -131,11 +149,13 @@ class OpnSenseApiClient {
     String path, {
     Map<String, dynamic>? data,
     Map<String, dynamic>? queryParameters,
+    Duration? receiveTimeout,
   }) async {
     final response = await postData(
       path,
       data: data,
       queryParameters: queryParameters,
+      receiveTimeout: receiveTimeout,
     );
     return _toMap(response);
   }
@@ -145,9 +165,29 @@ class OpnSenseApiClient {
     await getJson('/api/diagnostics/system/system_information');
   }
 
+  /// OPNsense normally sends JSON with the correct response content type, but
+  /// reverse proxies and some web-server customizations can expose a JSON body
+  /// as text. Decode JSON-looking strings so callers receive the same shape in
+  /// either case.
+  static dynamic normalizeResponseData(dynamic data) {
+    if (data is! String) return data;
+    final text = data.trim();
+    if (text.isEmpty) return data;
+    final looksJson =
+        (text.startsWith('{') && text.endsWith('}')) ||
+            (text.startsWith('[') && text.endsWith(']'));
+    if (!looksJson) return data;
+    try {
+      return jsonDecode(text);
+    } on FormatException {
+      return data;
+    }
+  }
+
   static Map<String, dynamic> _toMap(dynamic data) {
-    if (data is Map<String, dynamic>) return data;
-    if (data is Map) return Map<String, dynamic>.from(data);
+    final normalized = normalizeResponseData(data);
+    if (normalized is Map<String, dynamic>) return normalized;
+    if (normalized is Map) return Map<String, dynamic>.from(normalized);
     throw const OpnSenseException('The firewall returned an unexpected response.');
   }
 
@@ -171,11 +211,20 @@ class OpnSenseApiClient {
         statusCode: 404,
       );
     }
+    if (error.type == DioExceptionType.receiveTimeout) {
+      return const OpnSenseException(
+        'The firewall did not finish this operation before the response timeout. Try again or use a nearer source/interface.',
+      );
+    }
     if (error.type == DioExceptionType.connectionTimeout ||
-        error.type == DioExceptionType.receiveTimeout ||
         error.type == DioExceptionType.connectionError) {
       return const OpnSenseException(
         'Unable to reach the firewall. Check its address, VPN/LAN access and HTTPS configuration.',
+      );
+    }
+    if (error.type == DioExceptionType.sendTimeout) {
+      return const OpnSenseException(
+        'The request could not be sent to the firewall before the timeout.',
       );
     }
     return OpnSenseException(
