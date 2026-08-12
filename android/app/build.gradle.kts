@@ -68,11 +68,16 @@ android {
 }
 
 dependencies {
-    // Keep Google advertising native-only. The Flutter google_mobile_ads plugin
-    // caused a launch-time crash on the field test device, so Sentinel owns the
-    // bridge and loads these classes only after the app shell is already alive.
+    // Keep Google advertising native-only. Sentinel owns the bridge and loads
+    // the Google runtime only after the app shell is alive.
     implementation("com.google.android.gms:play-services-ads:25.4.0")
     implementation("com.google.android.ump:user-messaging-platform:4.0.0")
+
+    // Force the current stable WorkManager release and use it through
+    // Configuration.Provider/on-demand initialization. This removes
+    // WorkDatabase creation from process startup and lets Sentinel catch a
+    // device/database failure before Google Ads is allowed to initialize.
+    implementation("androidx.work:work-runtime:2.11.2")
 }
 
 kotlin {
