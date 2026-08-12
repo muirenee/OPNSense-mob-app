@@ -2,8 +2,8 @@ class AppInfo {
   const AppInfo._();
 
   static const String name = 'Netsource Sentinel';
-  static const String version = '1.1.3';
-  static const int buildNumber = 113;
+  static const String version = '1.1.4';
+  static const int buildNumber = 114;
   static const String packageId = 'com.netsource.sentinel';
   static const String supportEmail = 'support@fidalix.com';
 
@@ -19,11 +19,11 @@ class AppInfo {
     defaultValue: '',
   );
 
-  /// Free releases are ad-supported by default. Ads are implemented through a
-  /// Sentinel-owned native Android bridge rather than the google_mobile_ads
-  /// Flutter plugin, which caused the v1.1.0/v1.1.1 launch crash on the test
-  /// device. The bridge fails open: an ads/consent failure never blocks the
-  /// firewall manager.
+  /// Free releases are ad-supported by default. Advertising is implemented by
+  /// Sentinel's native Android bridge. AndroidX Startup and Google's eager ads
+  /// provider are disabled so no advertising dependency can create databases
+  /// or initialize before the firewall UI is alive. WorkManager is preflighted
+  /// on demand and any failure disables ads for the current session.
   static const bool adsEnabled = bool.fromEnvironment(
     'SENTINEL_ADS_ENABLED',
     defaultValue: true,
