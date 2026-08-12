@@ -487,17 +487,15 @@ class DiagnosticsRepository {
     final normalized = OpnSenseApiClient.normalizeResponseData(raw);
     if (normalized is Map) {
       final map = Map<String, dynamic>.from(normalized);
-      final result = map['result'];
-      if (result is String &&
-          const {'failed', 'ok', 'success'}.contains(result.toLowerCase())) {
-        // A status word is never a job identifier.
-      } else {
-        final direct = firstString(
-          map,
-          const ['uuid', 'id', 'jobid', 'job_id'],
-        );
-        if (direct.isNotEmpty) return direct;
-      }
+      // A successful OPNsense set response commonly contains both
+      // `result: ok` and a top-level `uuid`. Always prefer explicit identifier
+      // fields; status words themselves are never treated as identifiers.
+      final direct = firstString(
+        map,
+        const ['uuid', 'id', 'jobid', 'job_id'],
+      );
+      if (direct.isNotEmpty) return direct;
+
       for (final value in map.values) {
         if (value is Map || value is String) {
           final nested = extractJobId(value);
