@@ -32,6 +32,8 @@ class DiagnosticsRepository {
     String family = 'inet',
     String sourceAddress = '',
   }) async {
+    // OPNsense executes traceroute synchronously inside this endpoint. A remote
+    // hop can therefore take substantially longer than a normal API request.
     final raw = await api.postData(
       '/api/diagnostics/traceroute/set',
       data: buildTraceroutePayload(
@@ -40,6 +42,7 @@ class DiagnosticsRepository {
         family: family,
         sourceAddress: sourceAddress,
       ),
+      receiveTimeout: const Duration(seconds: 90),
     );
     ensureApiSuccess(raw, operation: 'Traceroute');
 
@@ -104,6 +107,7 @@ class DiagnosticsRepository {
     String family = 'ip',
     String sourceAddress = '',
   }) async {
+    final before = await _tryPingJobIds();
     final raw = await api.postData(
       '/api/diagnostics/ping/set',
       data: buildPingPayload(
@@ -114,10 +118,18 @@ class DiagnosticsRepository {
     );
     ensureApiSuccess(raw, operation: 'Create ping job');
 
-    final id = extractJobId(raw);
+    var id = extractJobId(raw);
+    if (id.isEmpty && before != null) {
+      // Correct OPNsense 26.7 responses contain a top-level UUID. This fallback
+      // recovers the newly-created job when an intermediary strips/reformats
+      // that field while the firewall still persisted the job successfully.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      final after = await _tryPingJobIds();
+      if (after != null) id = findNewJobId(before, after);
+    }
     if (id.isEmpty) {
       throw StateError(
-        'The firewall accepted the ping settings but returned no job UUID.',
+        'The firewall accepted the ping settings but no job UUID could be recovered. Check the Diagnostics API permission and any reverse proxy in front of OPNsense.',
       );
     }
 
@@ -139,6 +151,18 @@ class DiagnosticsRepository {
       queryParameters: const {'current': 1, 'rowCount': 250},
     );
     return parseDiagnosticJobs(raw);
+  }
+
+  Future<Set<String>?> _tryPingJobIds() async {
+    try {
+      final jobs = await loadPingJobs();
+      return jobs
+          .map((job) => job.id)
+          .where((id) => id.trim().isNotEmpty)
+          .toSet();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> stopPing(String jobId) async {
@@ -169,6 +193,7 @@ class DiagnosticsRepository {
     if (interfaces.isEmpty) {
       throw StateError('Select at least one interface for packet capture.');
     }
+    final before = await _tryPacketCaptureJobIds();
     final raw = await api.postData(
       '/api/diagnostics/packet_capture/set',
       data: buildPacketCapturePayload(
@@ -184,10 +209,15 @@ class DiagnosticsRepository {
       ),
     );
     ensureApiSuccess(raw, operation: 'Create packet capture');
-    final id = extractJobId(raw);
+    var id = extractJobId(raw);
+    if (id.isEmpty && before != null) {
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      final after = await _tryPacketCaptureJobIds();
+      if (after != null) id = findNewJobId(before, after);
+    }
     if (id.isEmpty) {
       throw StateError(
-        'The firewall accepted packet-capture settings but returned no job UUID.',
+        'The firewall accepted packet-capture settings but no job UUID could be recovered. Check the Diagnostics API permission and any reverse proxy in front of OPNsense.',
       );
     }
     final started = await api.postData(
@@ -204,6 +234,18 @@ class DiagnosticsRepository {
   Future<List<PacketCaptureJob>> loadPacketCaptureJobs() async {
     final raw = await api.getData('/api/diagnostics/packet_capture/search_jobs');
     return parsePacketCaptureJobs(raw);
+  }
+
+  Future<Set<String>?> _tryPacketCaptureJobIds() async {
+    try {
+      final jobs = await loadPacketCaptureJobs();
+      return jobs
+          .map((job) => job.id)
+          .where((id) => id.trim().isNotEmpty)
+          .toSet();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> stopPacketCapture(String jobId) async {
@@ -223,6 +265,7 @@ class DiagnosticsRepository {
   Future<File> downloadPacketCapture(String jobId) async {
     final bytes = await api.getBytes(
       '/api/diagnostics/packet_capture/download/${Uri.encodeComponent(jobId)}',
+      receiveTimeout: const Duration(seconds: 60),
     );
     final safeId = jobId.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_');
     final file = File(
@@ -307,8 +350,9 @@ class DiagnosticsRepository {
     dynamic raw, {
     required String modelKey,
   }) {
-    if (raw is! Map) return <String, dynamic>{};
-    final map = Map<String, dynamic>.from(raw);
+    final normalized = OpnSenseApiClient.normalizeResponseData(raw);
+    if (normalized is! Map) return <String, dynamic>{};
+    final map = Map<String, dynamic>.from(normalized);
     dynamic candidate = map[modelKey] ??
         (modelKey == 'packetcapture' ? map['packet_capture'] : null) ??
         map;
@@ -440,8 +484,9 @@ class DiagnosticsRepository {
   }
 
   static String extractJobId(dynamic raw) {
-    if (raw is Map) {
-      final map = Map<String, dynamic>.from(raw);
+    final normalized = OpnSenseApiClient.normalizeResponseData(raw);
+    if (normalized is Map) {
+      final map = Map<String, dynamic>.from(normalized);
       final result = map['result'];
       if (result is String &&
           const {'failed', 'ok', 'success'}.contains(result.toLowerCase())) {
@@ -454,7 +499,7 @@ class DiagnosticsRepository {
         if (direct.isNotEmpty) return direct;
       }
       for (final value in map.values) {
-        if (value is Map) {
+        if (value is Map || value is String) {
           final nested = extractJobId(value);
           if (nested.isNotEmpty) return nested;
         }
@@ -463,12 +508,18 @@ class DiagnosticsRepository {
     return '';
   }
 
+  static String findNewJobId(Set<String> before, Set<String> after) {
+    final created = after.difference(before).where((id) => id.isNotEmpty).toList();
+    return created.length == 1 ? created.single : '';
+  }
+
   static void ensureApiSuccess(
     dynamic raw, {
     required String operation,
   }) {
-    if (raw is! Map) return;
-    final map = Map<String, dynamic>.from(raw);
+    final normalized = OpnSenseApiClient.normalizeResponseData(raw);
+    if (normalized is! Map) return;
+    final map = Map<String, dynamic>.from(normalized);
     final result = map['result']?.toString().trim().toLowerCase();
     final status = map['status']?.toString().trim().toLowerCase();
     if (result == 'failed' || status == 'failed' || status == 'error') {
@@ -533,13 +584,13 @@ class DiagnosticsRepository {
   }
 
   static List<Map<String, dynamic>> extractRows(dynamic raw) {
-    dynamic candidate = raw;
-    if (raw is Map) {
-      candidate = raw['rows'] ??
-          raw['items'] ??
-          raw['data'] ??
-          raw['routes'] ??
-          raw;
+    dynamic candidate = OpnSenseApiClient.normalizeResponseData(raw);
+    if (candidate is Map) {
+      candidate = candidate['rows'] ??
+          candidate['items'] ??
+          candidate['data'] ??
+          candidate['routes'] ??
+          candidate;
     }
     final rows = <Map<String, dynamic>>[];
     if (candidate is List) {
@@ -595,8 +646,9 @@ class DiagnosticsRepository {
   }
 
   static String _statusFrom(dynamic raw, {required String fallback}) {
-    if (raw is Map) {
-      final map = Map<String, dynamic>.from(raw);
+    final normalized = OpnSenseApiClient.normalizeResponseData(raw);
+    if (normalized is Map) {
+      final map = Map<String, dynamic>.from(normalized);
       final value = firstString(map, const ['status', 'state', 'result']);
       return value.isEmpty ? fallback : value;
     }
