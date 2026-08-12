@@ -122,6 +122,19 @@ class NatRepository {
           .map((choice) => choice.value)
           .toSet();
 
+  static bool protocolSupportsPorts(String value) {
+    final protocol = value.trim().toLowerCase();
+    return const {'tcp', 'udp', 'tcp/udp'}.contains(protocol);
+  }
+
+  /// DNat PortMappedField/PortField represents unrestricted ports with an
+  /// empty string. Keep accepting the friendly word "any" from manual entry,
+  /// but never submit it as a literal port/service name.
+  static String normalizePort(String value) {
+    final text = value.trim();
+    return text.toLowerCase() == 'any' ? '' : text;
+  }
+
   static String _controller(NatRuleKind kind) =>
       kind == NatRuleKind.portForward ? 'd_nat' : 'source_nat';
 
