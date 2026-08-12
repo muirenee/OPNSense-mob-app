@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 
 import '../../features/profiles/firewall_profile.dart';
+import 'demo_api_backend.dart';
 import 'opnsense_exception.dart';
 
 class OpnSenseApiClient {
@@ -12,9 +13,12 @@ class OpnSenseApiClient {
     required FirewallProfile profile,
     required FirewallCredentials credentials,
   })  : _profile = profile,
+        _demo = profile.isDemo ? const DemoApiBackend() : null,
         _dio = Dio(
           BaseOptions(
-            baseUrl: normalizeBaseUrl(profile.baseUrl),
+            baseUrl: profile.isDemo
+                ? 'https://demo.invalid'
+                : normalizeBaseUrl(profile.baseUrl),
             connectTimeout: const Duration(seconds: 8),
             receiveTimeout: const Duration(seconds: 12),
             sendTimeout: const Duration(seconds: 12),
@@ -25,7 +29,7 @@ class OpnSenseApiClient {
             },
           ),
         ) {
-    if (profile.allowSelfSignedCertificate) {
+    if (!profile.isDemo && profile.allowSelfSignedCertificate) {
       _dio.httpClientAdapter = IOHttpClientAdapter(
         createHttpClient: () {
           final client = HttpClient();
@@ -37,12 +41,14 @@ class OpnSenseApiClient {
   }
 
   final FirewallProfile _profile;
+  final DemoApiBackend? _demo;
   final Dio _dio;
 
   FirewallProfile get profile => _profile;
 
   static String normalizeBaseUrl(String value) {
     var result = value.trim();
+    if (result.startsWith('demo://')) return result;
     if (!result.startsWith('http://') && !result.startsWith('https://')) {
       result = 'https://$result';
     }
@@ -56,6 +62,9 @@ class OpnSenseApiClient {
     String path, {
     Map<String, dynamic>? queryParameters,
   }) async {
+    if (_demo != null) {
+      return _demo.getData(path, queryParameters: queryParameters);
+    }
     try {
       final response = await _dio.get<dynamic>(
         path,
@@ -79,6 +88,9 @@ class OpnSenseApiClient {
     String path, {
     Map<String, dynamic>? queryParameters,
   }) async {
+    if (_demo != null) {
+      return _demo.getBytes(path, queryParameters: queryParameters);
+    }
     try {
       final response = await _dio.get<List<int>>(
         path,
@@ -96,6 +108,13 @@ class OpnSenseApiClient {
     Map<String, dynamic>? data,
     Map<String, dynamic>? queryParameters,
   }) async {
+    if (_demo != null) {
+      return _demo.postData(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+      );
+    }
     try {
       final response = await _dio.post<dynamic>(
         path,
@@ -122,6 +141,7 @@ class OpnSenseApiClient {
   }
 
   Future<void> testConnection() async {
+    if (_demo != null) return;
     await getJson('/api/diagnostics/system/system_information');
   }
 

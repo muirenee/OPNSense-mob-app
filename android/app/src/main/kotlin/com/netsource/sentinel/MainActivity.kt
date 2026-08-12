@@ -1,4 +1,4 @@
-package com.netsource.netsource_opn_manager
+package com.netsource.sentinel
 
 import io.flutter.embedding.android.FlutterActivity
 

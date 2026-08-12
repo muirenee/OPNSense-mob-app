@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/app_info.dart';
+import '../../core/licensing/license_repository.dart';
 import '../../core/storage/profile_repository.dart';
 import '../audit/audit_screen.dart';
 import '../capabilities/capabilities_screen.dart';
@@ -7,6 +9,8 @@ import '../captive_portal/captive_portal_screen.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../diagnostics/diagnostics_screen.dart';
 import '../firewall/firewall_module_screen.dart';
+import '../legal/legal_screen.dart';
+import '../licensing/license_screen.dart';
 import '../network/network_module_screen.dart';
 import '../profiles/firewall_profile.dart';
 import '../profiles/profile_setup_screen.dart';
@@ -19,6 +23,7 @@ class MainShell extends StatefulWidget {
   const MainShell({
     super.key,
     required this.repository,
+    required this.licenseRepository,
     required this.profile,
     required this.credentials,
     required this.themeMode,
@@ -26,6 +31,7 @@ class MainShell extends StatefulWidget {
   });
 
   final ProfileRepository repository;
+  final LicenseRepository licenseRepository;
   final FirewallProfile profile;
   final FirewallCredentials credentials;
   final ThemeMode themeMode;
@@ -48,7 +54,8 @@ class _MainShellState extends State<MainShell> {
       MaterialPageRoute<void>(
         builder: (_) => ProfileSetupScreen(
           repository: widget.repository,
-          initialProfile: widget.profile,
+          licenseRepository: widget.licenseRepository,
+          initialProfile: widget.profile.isDemo ? null : widget.profile,
         ),
       ),
     );
@@ -73,6 +80,7 @@ class _MainShellState extends State<MainShell> {
       VpnScreen(profile: widget.profile, credentials: widget.credentials),
       _MoreScreen(
         repository: widget.repository,
+        licenseRepository: widget.licenseRepository,
         profile: widget.profile,
         credentials: widget.credentials,
         themeMode: widget.themeMode,
@@ -95,13 +103,39 @@ class _MainShellState extends State<MainShell> {
             ),
           ),
         ),
-        title: const Text('Netsource Sentinel'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Flexible(child: Text('Netsource Sentinel')),
+            if (widget.profile.isDemo) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  'DEMO',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
         actions: [
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 150),
             child: TextButton.icon(
               onPressed: _editProfile,
-              icon: const Icon(Icons.edit_outlined, size: 17),
+              icon: Icon(
+                widget.profile.isDemo ? Icons.swap_horiz : Icons.edit_outlined,
+                size: 17,
+              ),
               label: Text(
                 widget.profile.name,
                 maxLines: 1,
@@ -147,6 +181,7 @@ class _MainShellState extends State<MainShell> {
 class _MoreScreen extends StatelessWidget {
   const _MoreScreen({
     required this.repository,
+    required this.licenseRepository,
     required this.profile,
     required this.credentials,
     required this.themeMode,
@@ -154,6 +189,7 @@ class _MoreScreen extends StatelessWidget {
   });
 
   final ProfileRepository repository;
+  final LicenseRepository licenseRepository;
   final FirewallProfile profile;
   final FirewallCredentials credentials;
   final ThemeMode themeMode;
@@ -177,7 +213,9 @@ class _MoreScreen extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'System, access and portal administration',
+          profile.isDemo
+              ? 'Demo Mode uses local sample data; no firewall is changed.'
+              : 'System, access and portal administration',
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -215,15 +253,16 @@ class _MoreScreen extends StatelessWidget {
               ),
               const Divider(height: 1),
               ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: const Text('Firewall profile'),
+                leading: Icon(profile.isDemo ? Icons.explore_outlined : Icons.edit_outlined),
+                title: Text(profile.isDemo ? 'Demo profile' : 'Firewall profile'),
                 subtitle: Text(profile.name),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _open(
                   context,
                   ProfileSetupScreen(
                     repository: repository,
-                    initialProfile: profile,
+                    licenseRepository: licenseRepository,
+                    initialProfile: profile.isDemo ? null : profile,
                   ),
                 ),
               ),
@@ -297,6 +336,27 @@ class _MoreScreen extends StatelessWidget {
           child: Column(
             children: [
               ListTile(
+                leading: const Icon(Icons.verified_outlined),
+                title: const Text('License & subscription'),
+                subtitle: Text(
+                  '${licenseRepository.entitlement.planLabel} · '
+                  'up to ${licenseRepository.entitlement.maxFirewalls} firewall(s)',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _open(
+                  context,
+                  LicenseScreen(repository: licenseRepository),
+                ),
+              ),
+              const Divider(height: 1),
+              const ListTile(
+                leading: Icon(Icons.privacy_tip_outlined),
+                title: Text('Legal & privacy'),
+                subtitle: Text('Privacy Policy, EULA and third-party notices'),
+                trailing: Icon(Icons.chevron_right),
+              ),
+              const Divider(height: 1),
+              ListTile(
                 leading: const Icon(Icons.palette_outlined),
                 title: const Text('Appearance'),
                 subtitle: const Text('Follow system, light or dark'),
@@ -334,13 +394,26 @@ class _MoreScreen extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        const Card(
-          child: ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text('Netsource Sentinel · Version 0.6.1'),
-            subtitle: Text(
-              'Complete access assignment · portal selectors · diagnostics fixes',
-            ),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: Text(
+                  '${AppInfo.name} · Version ${AppInfo.version} (${AppInfo.buildNumber})',
+                ),
+                subtitle: const Text(
+                  'Commercial-release foundation · API 36 · Demo Mode · licensing',
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.privacy_tip_outlined),
+                title: const Text('Open Privacy Policy / EULA'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _open(context, const LegalScreen()),
+              ),
+            ],
           ),
         ),
       ],

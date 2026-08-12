@@ -1,0 +1,39 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:netsource_opn_manager/core/licensing/license_models.dart';
+
+void main() {
+  test('free entitlement allows one firewall', () {
+    final entitlement = LicenseEntitlement.free();
+    expect(entitlement.plan, LicensePlan.free);
+    expect(entitlement.maxFirewalls, 1);
+    expect(entitlement.isUsable, isTrue);
+  });
+
+  test('commercial entitlement parses server payload', () {
+    final entitlement = LicenseEntitlement.fromJson({
+      'plan': 'professional',
+      'status': 'active',
+      'max_firewalls': 5,
+      'features': ['diagnostics', 'multi-firewall'],
+      'license_id': 'lic_123',
+      'lease_token': 'opaque-lease',
+      'expires_at': '2027-08-12T00:00:00Z',
+      'offline_until': '2026-08-19T00:00:00Z',
+    });
+    expect(entitlement.plan, LicensePlan.professional);
+    expect(entitlement.maxFirewalls, 5);
+    expect(entitlement.hasFeature('multi-firewall'), isTrue);
+    expect(entitlement.leaseToken, 'opaque-lease');
+  });
+
+  test('revoked entitlement is not usable', () {
+    final entitlement = LicenseEntitlement.fromJson({
+      'plan': 'personal',
+      'status': 'revoked',
+      'max_firewalls': 1,
+      'features': ['diagnostics'],
+      'lease_token': 'revoked-token',
+    });
+    expect(entitlement.isUsable, isFalse);
+  });
+}

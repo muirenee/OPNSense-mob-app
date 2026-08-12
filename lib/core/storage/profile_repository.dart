@@ -9,6 +9,7 @@ import '../../features/profiles/firewall_profile.dart';
 class ProfileRepository extends ChangeNotifier {
   static const _profilesKey = 'firewall_profiles_v1';
   static const _selectedProfileKey = 'selected_profile_id_v1';
+  static const _demoProfileId = '__demo__';
 
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
   late SharedPreferences _preferences;
@@ -20,6 +21,7 @@ class ProfileRepository extends ChangeNotifier {
   String? get selectedProfileId => _selectedProfileId;
 
   FirewallProfile? get selectedProfile {
+    if (_selectedProfileId == _demoProfileId) return FirewallProfile.demo;
     if (_selectedProfileId == null) return null;
     for (final profile in _profiles) {
       if (profile.id == _selectedProfileId) return profile;
@@ -32,14 +34,14 @@ class ProfileRepository extends ChangeNotifier {
     _selectedProfileId = _preferences.getString(_selectedProfileKey);
 
     final raw = _preferences.getString(_profilesKey);
-    if (raw == null || raw.isEmpty) return;
-
-    final decoded = jsonDecode(raw) as List<dynamic>;
-    _profiles
-      ..clear()
-      ..addAll(decoded.map((item) => FirewallProfile.fromJson(
-            Map<String, Object?>.from(item as Map),
-          )));
+    if (raw != null && raw.isNotEmpty) {
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      _profiles
+        ..clear()
+        ..addAll(decoded.map((item) => FirewallProfile.fromJson(
+              Map<String, Object?>.from(item as Map),
+            )));
+    }
 
     if (selectedProfile == null && _profiles.isNotEmpty) {
       _selectedProfileId = _profiles.first.id;
@@ -50,6 +52,9 @@ class ProfileRepository extends ChangeNotifier {
     FirewallProfile profile,
     FirewallCredentials credentials,
   ) async {
+    if (profile.isDemo) {
+      throw StateError('Demo Mode profiles are not persisted.');
+    }
     final index = _profiles.indexWhere((item) => item.id == profile.id);
     if (index == -1) {
       _profiles.add(profile);
@@ -71,6 +76,7 @@ class ProfileRepository extends ChangeNotifier {
   }
 
   Future<FirewallCredentials?> credentialsFor(String profileId) async {
+    if (profileId == _demoProfileId) return FirewallCredentials.demo;
     final apiKey = await _secureStorage.read(
       key: _credentialKey(profileId, 'apiKey'),
     );
@@ -87,7 +93,15 @@ class ProfileRepository extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> selectDemo() => select(_demoProfileId);
+
   Future<void> delete(String profileId) async {
+    if (profileId == _demoProfileId) {
+      _selectedProfileId = _profiles.isEmpty ? null : _profiles.first.id;
+      await _persist();
+      notifyListeners();
+      return;
+    }
     _profiles.removeWhere((item) => item.id == profileId);
     await _secureStorage.delete(key: _credentialKey(profileId, 'apiKey'));
     await _secureStorage.delete(key: _credentialKey(profileId, 'apiSecret'));

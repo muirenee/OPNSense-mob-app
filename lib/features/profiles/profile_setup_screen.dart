@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/opnsense_api_client.dart';
+import '../../core/licensing/license_repository.dart';
 import '../../core/storage/profile_repository.dart';
+import '../legal/legal_screen.dart';
+import '../licensing/license_screen.dart';
 import 'firewall_profile.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({
     super.key,
     required this.repository,
+    required this.licenseRepository,
     this.initialProfile,
   });
 
   final ProfileRepository repository;
+  final LicenseRepository licenseRepository;
   final FirewallProfile? initialProfile;
 
   @override
@@ -32,7 +37,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   void initState() {
     super.initState();
     _name = TextEditingController(
-      text: widget.initialProfile?.name ?? 'My Sentinel',
+      text: widget.initialProfile?.name ?? 'My Firewall',
     );
     _url = TextEditingController(
       text: widget.initialProfile?.baseUrl ?? 'https://',
@@ -44,7 +49,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
   Future<void> _loadExistingCredentials() async {
     final profile = widget.initialProfile;
-    if (profile == null) return;
+    if (profile == null || profile.isDemo) return;
     final credentials = await widget.repository.credentialsFor(profile.id);
     if (!mounted || credentials == null) return;
     _apiKey.text = credentials.apiKey;
@@ -62,6 +67,18 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
 
   Future<void> _saveAndConnect() async {
+    final adding = widget.initialProfile == null;
+    if (adding &&
+        !widget.licenseRepository.canAddFirewall(widget.repository.profiles.length)) {
+      setState(() {
+        _message =
+            'Your ${widget.licenseRepository.entitlement.planLabel} plan allows '
+            '${widget.licenseRepository.entitlement.maxFirewalls} firewall profile(s). '
+            'Activate a higher plan to add another firewall.';
+      });
+      return;
+    }
+
     if (_name.text.trim().isEmpty ||
         _url.text.trim().isEmpty ||
         _apiKey.text.trim().isEmpty ||
@@ -102,6 +119,26 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     }
   }
 
+  Future<void> _enterDemo() async {
+    await widget.repository.selectDemo();
+    if (!mounted) return;
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+  }
+
+  void _openLicense() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LicenseScreen(repository: widget.licenseRepository),
+      ),
+    );
+  }
+
+  void _openLegal() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const LegalScreen()),
+    );
+  }
+
   Future<void> _deleteProfile(FirewallProfile profile) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -129,21 +166,41 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   Widget build(BuildContext context) {
     final profiles = widget.repository.profiles;
     final isEditing = widget.initialProfile != null;
+    final entitlement = widget.licenseRepository.entitlement;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isEditing ? 'Edit firewall' : 'Netsource Sentinel firewalls'),
+        title: Text(isEditing ? 'Edit firewall' : 'Netsource Sentinel'),
+        actions: [
+          IconButton(
+            tooltip: 'License',
+            onPressed: _openLicense,
+            icon: const Icon(Icons.verified_outlined),
+          ),
+        ],
       ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
             if (!isEditing && profiles.isNotEmpty) ...[
-              Text(
-                'Saved firewalls',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Saved firewalls',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
                     ),
+                  ),
+                  Text(
+                    '${profiles.length}/${entitlement.maxFirewalls}',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               Card(
@@ -169,6 +226,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                   MaterialPageRoute<void>(
                                     builder: (_) => ProfileSetupScreen(
                                       repository: widget.repository,
+                                      licenseRepository: widget.licenseRepository,
                                       initialProfile: profiles[i],
                                     ),
                                   ),
@@ -189,13 +247,23 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              Text(
-                'Add another firewall',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+            ],
+            if (!isEditing) ...[
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.explore_outlined),
+                  title: const Text(
+                    'Explore Demo Mode',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: const Text(
+                    'Preview Sentinel with local sample data. No firewall or account is required.',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _busy ? null : _enterDemo,
+                ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 20),
             ],
             Icon(
               Icons.shield_outlined,
@@ -204,7 +272,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Netsource Sentinel',
+              'Connect a firewall',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w800,
@@ -212,7 +280,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Connect directly to your Netsource Sentinel firewall API. Credentials are stored in platform secure storage.',
+              'Connect directly to a compatible OPNsense firewall API. Credentials remain on this device in platform secure storage.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -299,6 +367,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                         ? 'Test & save'
                         : 'Test & connect',
               ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TextButton(onPressed: _openLicense, child: const Text('License')),
+                TextButton(onPressed: _openLegal, child: const Text('Privacy & EULA')),
+              ],
             ),
           ],
         ),

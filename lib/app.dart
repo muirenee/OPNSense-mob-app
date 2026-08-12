@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 
+import 'core/licensing/license_repository.dart';
 import 'core/storage/profile_repository.dart';
 import 'core/theme/app_theme.dart';
 import 'features/profiles/profile_gate.dart';
 
 class OpnManagerApp extends StatefulWidget {
-  const OpnManagerApp({super.key, required this.profileRepository});
+  const OpnManagerApp({
+    super.key,
+    required this.profileRepository,
+    required this.licenseRepository,
+  });
 
   final ProfileRepository profileRepository;
+  final LicenseRepository licenseRepository;
 
   @override
   State<OpnManagerApp> createState() => _OpnManagerAppState();
@@ -26,6 +32,7 @@ class _OpnManagerAppState extends State<OpnManagerApp> {
       themeMode: _themeMode,
       home: ProfileGate(
         repository: widget.profileRepository,
+        licenseRepository: widget.licenseRepository,
         themeMode: _themeMode,
         onThemeModeChanged: (value) => setState(() => _themeMode = value),
       ),
