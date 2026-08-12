@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'core/ads/ad_service.dart';
 import 'core/licensing/license_repository.dart';
 import 'core/storage/profile_repository.dart';
 import 'core/theme/app_theme.dart';
@@ -10,10 +11,12 @@ class OpnManagerApp extends StatefulWidget {
     super.key,
     required this.profileRepository,
     required this.licenseRepository,
+    required this.adService,
   });
 
   final ProfileRepository profileRepository;
   final LicenseRepository licenseRepository;
+  final AdService adService;
 
   @override
   State<OpnManagerApp> createState() => _OpnManagerAppState();
@@ -21,6 +24,14 @@ class OpnManagerApp extends StatefulWidget {
 
 class _OpnManagerAppState extends State<OpnManagerApp> {
   ThemeMode _themeMode = ThemeMode.system;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.adService.initialize();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +44,7 @@ class _OpnManagerAppState extends State<OpnManagerApp> {
       home: ProfileGate(
         repository: widget.profileRepository,
         licenseRepository: widget.licenseRepository,
+        adService: widget.adService,
         themeMode: _themeMode,
         onThemeModeChanged: (value) => setState(() => _themeMode = value),
       ),
