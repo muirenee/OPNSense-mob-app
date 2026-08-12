@@ -2,8 +2,8 @@ class AppInfo {
   const AppInfo._();
 
   static const String name = 'Netsource Sentinel';
-  static const String version = '1.0.2';
-  static const int buildNumber = 102;
+  static const String version = '1.0.3';
+  static const int buildNumber = 103;
   static const String packageId = 'com.netsource.sentinel';
   static const String supportEmail = 'support@fidalix.com';
 

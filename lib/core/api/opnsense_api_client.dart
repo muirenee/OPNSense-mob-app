@@ -59,6 +59,14 @@ class OpnSenseApiClient {
     return result;
   }
 
+  /// OPNsense's external API parser rejects an application/json POST when the
+  /// raw request body is empty. Explicitly serialize every POST payload so
+  /// no-argument actions such as firewall /apply still send the valid JSON
+  /// document `{}` instead of a zero-length body.
+  static String encodePostBody(Map<String, dynamic>? data) {
+    return jsonEncode(data ?? const <String, dynamic>{});
+  }
+
   Future<dynamic> getData(
     String path, {
     Map<String, dynamic>? queryParameters,
@@ -133,11 +141,14 @@ class OpnSenseApiClient {
     try {
       final response = await _dio.post<dynamic>(
         path,
-        data: data ?? {},
+        data: encodePostBody(data),
         queryParameters: queryParameters,
         options: receiveTimeout == null
-            ? null
-            : Options(receiveTimeout: receiveTimeout),
+            ? Options(contentType: Headers.jsonContentType)
+            : Options(
+                contentType: Headers.jsonContentType,
+                receiveTimeout: receiveTimeout,
+              ),
       );
       return normalizeResponseData(response.data);
     } on DioException catch (error) {

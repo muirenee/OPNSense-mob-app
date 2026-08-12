@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netsource_opn_manager/core/api/opnsense_api_client.dart';
 
@@ -11,6 +13,26 @@ void main() {
       OpnSenseApiClient.normalizeBaseUrl('https://fw.example.test///'),
       'https://fw.example.test',
     );
+  });
+
+  test('serializes an empty POST as a real JSON object', () {
+    expect(OpnSenseApiClient.encodePostBody(null), '{}');
+    expect(OpnSenseApiClient.encodePostBody(const <String, dynamic>{}), '{}');
+  });
+
+  test('serializes nested OPNsense POST payloads as valid JSON', () {
+    final body = OpnSenseApiClient.encodePostBody({
+      'rule': {
+        'action': 'pass',
+        'interface': 'lan',
+        'destination_port': '',
+      },
+    });
+
+    final decoded = jsonDecode(body) as Map<String, dynamic>;
+    expect((decoded['rule'] as Map)['action'], 'pass');
+    expect((decoded['rule'] as Map)['interface'], 'lan');
+    expect((decoded['rule'] as Map)['destination_port'], '');
   });
 
   test('decodes JSON response exposed as text', () {
