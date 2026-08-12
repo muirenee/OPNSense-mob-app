@@ -23,6 +23,8 @@ jobs:
       KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      SENTINEL_ADMOB_APP_ID: ${{ secrets.SENTINEL_ADMOB_APP_ID }}
+      SENTINEL_ADMOB_BANNER_ID: ${{ secrets.SENTINEL_ADMOB_BANNER_ID }}
       EXPECTED_KEY_ALIAS: netsource-sentinel
       EXPECTED_KEYSTORE_SHA256: 2c190e6d58bb4d43678100cf14ca2dd51c08202e7b30b869e370ef075020b804
       EXPECTED_RELEASE_CERT_SHA256: 8f6a384f612aa0d480dce388737dcf7441fc4619581b20bdb226e52ca4316e0d
@@ -60,6 +62,15 @@ jobs:
 
       - name: Test
         run: flutter test
+
+      - name: Report AdMob build mode
+        shell: bash
+        run: |
+          if [ -n "${SENTINEL_ADMOB_APP_ID:-}" ] && [ -n "${SENTINEL_ADMOB_BANNER_ID:-}" ]; then
+            echo "AdMob production identifiers are configured for this build."
+          else
+            echo "AdMob production identifiers are not configured; Google test identifiers will be used."
+          fi
 
       - name: Prepare permanent release signing
         shell: bash
@@ -119,14 +130,28 @@ jobs:
           fi
 
       - name: Build release APK
+        shell: bash
         env:
           SENTINEL_REQUIRE_RELEASE_SIGNING: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
-        run: flutter build apk --release
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "${SENTINEL_ADMOB_BANNER_ID:-}" ]; then
+            args+=("--dart-define=SENTINEL_ADMOB_BANNER_ID=${SENTINEL_ADMOB_BANNER_ID}")
+          fi
+          flutter build apk --release "${args[@]}"
 
       - name: Build Play App Bundle
+        shell: bash
         env:
           SENTINEL_REQUIRE_RELEASE_SIGNING: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
-        run: flutter build appbundle --release
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "${SENTINEL_ADMOB_BANNER_ID:-}" ]; then
+            args+=("--dart-define=SENTINEL_ADMOB_BANNER_ID=${SENTINEL_ADMOB_BANNER_ID}")
+          fi
+          flutter build appbundle --release "${args[@]}"
 
       - name: Verify APK, AAB and signing certificate
         shell: bash
