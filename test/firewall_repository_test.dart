@@ -25,4 +25,28 @@ void main() {
     expect(rules.first.logging, isTrue);
     expect(rules.first.destinationPort, '443');
   });
+
+  test('normalizes OPNsense case-sensitive filter protocols', () {
+    expect(FirewallRepository.normalizeProtocol('tcp'), 'TCP');
+    expect(FirewallRepository.normalizeProtocol('UDP'), 'UDP');
+    expect(FirewallRepository.normalizeProtocol('tcp/udp'), 'TCP/UDP');
+    expect(FirewallRepository.normalizeProtocol('icmp'), 'ICMP');
+    expect(FirewallRepository.normalizeProtocol('icmp6'), 'IPV6-ICMP');
+    expect(FirewallRepository.normalizeProtocol('any'), 'any');
+  });
+
+  test('only TCP and UDP filter protocols accept port fields', () {
+    expect(FirewallRepository.protocolSupportsPorts('TCP'), isTrue);
+    expect(FirewallRepository.protocolSupportsPorts('udp'), isTrue);
+    expect(FirewallRepository.protocolSupportsPorts('TCP/UDP'), isTrue);
+    expect(FirewallRepository.protocolSupportsPorts('ICMP'), isFalse);
+    expect(FirewallRepository.protocolSupportsPorts('any'), isFalse);
+  });
+
+  test('normalizes friendly any port to OPNsense blank PortField value', () {
+    expect(FirewallRepository.normalizePort('any'), '');
+    expect(FirewallRepository.normalizePort(' ANY '), '');
+    expect(FirewallRepository.normalizePort('443'), '443');
+    expect(FirewallRepository.normalizePort('10000-20000'), '10000-20000');
+  });
 }
