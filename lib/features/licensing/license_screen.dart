@@ -65,12 +65,12 @@ class _LicenseScreenState extends State<LicenseScreen> {
   @override
   Widget build(BuildContext context) {
     final entitlement = widget.repository.entitlement;
-    final commercial = entitlement.leaseToken.isNotEmpty;
+    final commercial = entitlement.isCommercial && entitlement.leaseToken.isNotEmpty;
     final expires = entitlement.expiresAt;
     final offlineUntil = entitlement.offlineUntil;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('License & subscription')),
+      appBar: AppBar(title: const Text('Plan')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -99,28 +99,62 @@ class _LicenseScreenState extends State<LicenseScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Text('Status: ${entitlement.status.name}'),
                   Text('Firewall profiles: up to ${entitlement.maxFirewalls}'),
+                  Text(entitlement.adsEnabled ? 'Advertising: enabled' : 'Advertising: disabled'),
+                  const Text('Firewall management features: enabled'),
                   if (entitlement.licenseId.isNotEmpty)
                     Text('License ID: ${entitlement.licenseId}'),
-                  if (expires != null)
-                    Text('Expires: ${_date(expires)}'),
+                  if (expires != null) Text('Expires: ${_date(expires)}'),
                   if (offlineUntil != null)
                     Text('Offline grace until: ${_date(offlineUntil)}'),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Installation ID: ${widget.repository.installationId}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 14),
-          if (!commercial) ...[
+          if (!commercial && !AppInfo.commercialLicensingEnabled)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sentinel Free',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'The Free edition manages one firewall and keeps the full firewall, NAT, network, VPN, diagnostics, user, service and captive-portal feature set available.',
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Free is supported by advertising on the main overview screens. Ads are not shown while entering credentials or while using add/edit/action screens.',
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.workspace_premium_outlined,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Sentinel Pro is planned for a later release with multiple-firewall management and no ads. No purchase flow is enabled in this Free build.',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (!commercial) ...[
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(18),
@@ -136,7 +170,7 @@ class _LicenseScreenState extends State<LicenseScreen> {
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'Enter the activation code supplied with your Personal, Professional or MSP subscription.',
+                      'Enter the activation code supplied with your Personal, Professional or MSP entitlement.',
                     ),
                     const SizedBox(height: 14),
                     TextField(
@@ -158,12 +192,6 @@ class _LicenseScreenState extends State<LicenseScreen> {
                         label: const Text('Activate license'),
                       ),
                     ),
-                    if (!widget.repository.serviceConfigured) ...[
-                      const SizedBox(height: 10),
-                      const Text(
-                        'This preview build does not have a licensing service URL configured. The client-side licensing framework is enabled; production builds must set SENTINEL_LICENSE_API_URL.',
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -189,34 +217,30 @@ class _LicenseScreenState extends State<LicenseScreen> {
               ],
             ),
           ],
-          const SizedBox(height: 14),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'How licensing works',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Netsource Sentinel uses an opaque lease token issued by the licensing service. '
-                    'The token and installation identifier are stored in secure platform storage. '
-                    'Firewall API credentials are never sent to the licensing service.',
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Paid entitlements can include an offline grace period so firewall management does not stop immediately during a temporary Internet or licensing-service outage.',
-                  ),
-                ],
+          if (AppInfo.commercialLicensingEnabled) ...[
+            const SizedBox(height: 14),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'How commercial licensing works',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Commercial entitlements use an opaque lease token and a randomly generated installation identifier stored in secure platform storage. Firewall API credentials are never sent to the licensing service.',
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
+          ],
           const SizedBox(height: 12),
           Text(
             '${AppInfo.name} ${AppInfo.version} (${AppInfo.buildNumber}) · ${AppInfo.packageId}',
