@@ -211,6 +211,15 @@ class OpnSenseApiClient {
         statusCode: 404,
       );
     }
+    if (status == 400 || status == 422) {
+      final detail = _responseErrorDetail(error.response?.data);
+      return OpnSenseException(
+        detail.isEmpty
+            ? 'The firewall rejected this request (HTTP $status).'
+            : 'The firewall rejected this request: $detail',
+        statusCode: status,
+      );
+    }
     if (error.type == DioExceptionType.receiveTimeout) {
       return const OpnSenseException(
         'The firewall did not finish this operation before the response timeout. Try again or use a nearer source/interface.',
@@ -228,8 +237,46 @@ class OpnSenseApiClient {
       );
     }
     return OpnSenseException(
-      error.message ?? 'Unexpected network error.',
+      _responseErrorDetail(error.response?.data).isNotEmpty
+          ? _responseErrorDetail(error.response?.data)
+          : (error.message ?? 'Unexpected network error.'),
       statusCode: status,
     );
+  }
+
+  static String _responseErrorDetail(dynamic raw) {
+    final normalized = normalizeResponseData(raw);
+    if (normalized is Map) {
+      final map = Map<String, dynamic>.from(normalized);
+      final validations = map['validations'] ?? map['validation'];
+      if (validations is Map) {
+        final parts = <String>[];
+        for (final entry in validations.entries) {
+          final value = entry.value;
+          if (value is List) {
+            for (final item in value) {
+              final text = item.toString().trim();
+              if (text.isNotEmpty) parts.add('${entry.key}: $text');
+            }
+          } else {
+            final text = value?.toString().trim() ?? '';
+            if (text.isNotEmpty) parts.add('${entry.key}: $text');
+          }
+        }
+        if (parts.isNotEmpty) return parts.join(' · ');
+      }
+      for (final key in const ['message', 'error', 'detail', 'result']) {
+        final value = map[key];
+        if (value is String) {
+          final text = value.trim();
+          if (text.isNotEmpty && text.toLowerCase() != 'failed') return text;
+        }
+      }
+    }
+    if (normalized is String) {
+      final text = normalized.trim();
+      if (text.isNotEmpty && text.length <= 500) return text;
+    }
+    return '';
   }
 }

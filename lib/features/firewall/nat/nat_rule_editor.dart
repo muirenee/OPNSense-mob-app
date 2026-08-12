@@ -28,16 +28,19 @@ class NatRuleEditor extends StatefulWidget {
 
 class _NatRuleEditorState extends State<NatRuleEditor> {
   late final TextEditingController _description;
+  late final TextEditingController _sequence;
   late final TextEditingController _source;
   late final TextEditingController _sourcePort;
   late final TextEditingController _destination;
   late final TextEditingController _destinationPort;
   late final TextEditingController _target;
   late final TextEditingController _targetPort;
+
   List<ApiChoice> _interfaceChoices = const [];
   List<ApiChoice> _networkChoices = const [];
   List<ApiChoice> _portChoices = const [];
   Set<String> _interfaces = <String>{};
+
   String _ipProtocol = 'inet';
   String _protocol = 'tcp';
   String _reflection = '';
@@ -50,16 +53,17 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
   bool _busy = false;
   bool _optionsLoading = false;
 
+  bool get _portsSupported => NatRepository.protocolSupportsPorts(_protocol);
+
   @override
   void initState() {
     super.initState();
+
     String scalar(List<String> keys, String fallback) {
       for (final key in keys) {
         final value = _read(widget.initial, key);
-        if (value is String || value is num) {
-          final text = value.toString().trim();
-          if (text.isNotEmpty) return text;
-        }
+        final text = _selectedScalar(value);
+        if (text.isNotEmpty) return text;
       }
       return fallback;
     }
@@ -69,6 +73,9 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
         const ['descr', 'description'],
         widget.rule?.description ?? '',
       ),
+    );
+    _sequence = TextEditingController(
+      text: scalar(const ['sequence'], ''),
     );
     _source = TextEditingController(
       text: scalar(
@@ -87,7 +94,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
         const ['destination.network', 'destination_net'],
         widget.rule?.destination.isNotEmpty == true
             ? widget.rule!.destination
-            : 'wanip',
+            : 'any',
       ),
     );
     _destinationPort = TextEditingController(
@@ -105,6 +112,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
         widget.rule?.targetPort ?? '',
       ),
     );
+
     _ipProtocol = scalar(const ['ipprotocol'], 'inet').toLowerCase();
     if (!const {'inet', 'inet6', 'inet46'}.contains(_ipProtocol)) {
       _ipProtocol = 'inet';
@@ -113,6 +121,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
       const ['protocol'],
       widget.rule?.protocol ?? 'tcp',
     ).toLowerCase();
+    if (_protocol.isEmpty) _protocol = 'any';
     if (!const {'tcp', 'udp', 'tcp/udp', 'any'}.contains(_protocol)) {
       _protocol = 'tcp';
     }
@@ -134,6 +143,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
     }.contains(_poolOptions)) {
       _poolOptions = '';
     }
+
     _sourceNot = _truthy(_read(widget.initial, 'source.not'));
     _destinationNot = _truthy(_read(widget.initial, 'destination.not'));
     final disabled = _read(widget.initial, 'disabled');
@@ -141,17 +151,64 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
         ? (widget.rule?.enabled ?? true)
         : !_truthy(disabled);
     _log = _truthy(_read(widget.initial, 'log'));
-    _applyOptions(widget.initial);
+
+    _applyOptions(widget.initial, applyDefaults: false);
     _loadOptions();
   }
 
-  void _applyOptions(Map<String, dynamic> model) {
+  void _applyOptions(
+    Map<String, dynamic> model, {
+    required bool applyDefaults,
+  }) {
     final choices = NatRepository.choices(model, 'interface');
     if (choices.isNotEmpty) _interfaceChoices = choices;
     final selected = NatRepository.selectedChoices(model, 'interface');
     if (selected.isNotEmpty) _interfaces = selected;
     if (_interfaces.isEmpty && widget.rule?.interfaceName.isNotEmpty == true) {
       _interfaces = _split(widget.rule!.interfaceName);
+    }
+
+    if (!applyDefaults) return;
+
+    void fill(TextEditingController controller, String key) {
+      final value = _selectedScalar(_read(model, key));
+      if (value.isNotEmpty) controller.text = value;
+    }
+
+    fill(_sequence, 'sequence');
+    fill(_source, 'source.network');
+    fill(_sourcePort, 'source.port');
+    fill(_destination, 'destination.network');
+    fill(_destinationPort, 'destination.port');
+    fill(_target, 'target');
+    fill(_targetPort, 'local-port');
+
+    final ipProtocol = _selectedScalar(_read(model, 'ipprotocol')).toLowerCase();
+    if (const {'inet', 'inet6', 'inet46'}.contains(ipProtocol)) {
+      _ipProtocol = ipProtocol;
+    }
+    var protocol = _selectedScalar(_read(model, 'protocol')).toLowerCase();
+    if (protocol.isEmpty) protocol = 'any';
+    if (const {'tcp', 'udp', 'tcp/udp', 'any'}.contains(protocol)) {
+      _protocol = protocol;
+    }
+    final reflection = _selectedScalar(_read(model, 'natreflection'));
+    if (const {'', 'purenat', 'disable'}.contains(reflection)) {
+      _reflection = reflection;
+    }
+    final pass = _selectedScalar(_read(model, 'pass'));
+    if (const {'', 'pass', 'rule'}.contains(pass)) _pass = pass;
+    final pool = _selectedScalar(_read(model, 'poolopts'));
+    if (const {
+      '',
+      'round-robin',
+      'round-robin sticky-address',
+      'random',
+      'random sticky-address',
+      'source-hash',
+      'bitmask',
+    }.contains(pool)) {
+      _poolOptions = pool;
     }
   }
 
@@ -161,9 +218,13 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
       final model = widget.rule == null
           ? await widget.repository.getDefaultRule(NatRuleKind.portForward)
           : await widget.repository.getRule(widget.rule!);
-      if (mounted) setState(() => _applyOptions(model));
+      if (mounted) {
+        setState(
+          () => _applyOptions(model, applyDefaults: widget.rule == null),
+        );
+      }
     } catch (_) {
-      // Manual interface fallback remains available if model access is denied.
+      // Initial/manual values remain editable if the model endpoint is denied.
     }
 
     try {
@@ -182,7 +243,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
     }
   }
 
-  dynamic _read(Map<String, dynamic> map, String key) {
+  static dynamic _read(Map<String, dynamic> map, String key) {
     dynamic value = map;
     for (final part in key.split('.')) {
       if (value is Map) {
@@ -194,14 +255,24 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
     return value;
   }
 
-  bool _truthy(dynamic value) {
+  static String _selectedScalar(dynamic value) {
+    if (value == null) return '';
+    if (value is String || value is num) return value.toString().trim();
+    final choices = parseApiChoices(value);
+    for (final choice in choices) {
+      if (choice.selected) return choice.value;
+    }
+    return '';
+  }
+
+  static bool _truthy(dynamic value) {
     if (value is bool) return value;
     if (value is num) return value != 0;
     final text = value?.toString().trim().toLowerCase() ?? '';
     return const {'1', 'true', 'yes', 'on', 'enabled'}.contains(text);
   }
 
-  Set<String> _split(String value) => value
+  static Set<String> _split(String value) => value
       .split(',')
       .map((item) => item.trim())
       .where((item) => item.isNotEmpty)
@@ -210,6 +281,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
   @override
   void dispose() {
     _description.dispose();
+    _sequence.dispose();
     _source.dispose();
     _sourcePort.dispose();
     _destination.dispose();
@@ -223,35 +295,44 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
     if (_interfaces.isEmpty ||
         _destination.text.trim().isEmpty ||
         _target.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Interface, destination and redirect target are required.',
-          ),
-        ),
-      );
+      _message('Interface, destination and redirect target are required.');
       return;
+    }
+
+    final sequenceText = _sequence.text.trim();
+    if (sequenceText.isNotEmpty) {
+      final sequence = int.tryParse(sequenceText);
+      if (sequence == null || sequence < 1 || sequence > 999999) {
+        _message('Sequence must be a number between 1 and 999999.');
+        return;
+      }
     }
 
     setState(() => _busy = true);
     final sortedInterfaces = _interfaces.toList()..sort();
+    final supportsPorts = _portsSupported;
     final values = <String, dynamic>{
+      if (sequenceText.isNotEmpty) 'sequence': sequenceText,
       'disabled': _enabled ? '0' : '1',
       'interface': sortedInterfaces.join(','),
       'ipprotocol': _ipProtocol,
       'protocol': _protocol == 'any' ? '' : _protocol,
       'source': {
         'network': _source.text.trim(),
-        'port': _sourcePort.text.trim(),
+        'port': supportsPorts ? NatRepository.normalizePort(_sourcePort.text) : '',
         'not': _sourceNot ? '1' : '0',
       },
       'destination': {
         'network': _destination.text.trim(),
-        'port': _destinationPort.text.trim(),
+        'port': supportsPorts
+            ? NatRepository.normalizePort(_destinationPort.text)
+            : '',
         'not': _destinationNot ? '1' : '0',
       },
       'target': _target.text.trim(),
-      'local-port': _targetPort.text.trim(),
+      'local-port': supportsPorts
+          ? NatRepository.normalizePort(_targetPort.text)
+          : '',
       'poolopts': _poolOptions,
       'log': _log ? '1' : '0',
       'natreflection': _reflection,
@@ -260,7 +341,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
     };
 
     try {
-      final revision = await widget.repository.saveRuleSafely(
+      final applyResult = await widget.repository.saveRuleSafely(
         kind: NatRuleKind.portForward,
         uuid: widget.rule?.uuid,
         values: values,
@@ -274,19 +355,32 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
               ? '${_destination.text}:${_destinationPort.text}'
               : _description.text.trim(),
           result: 'success',
-          details: 'rollback revision $revision',
+          details: 'OPNsense apply: $applyResult',
         );
       } catch (_) {}
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to save port forward: $error')),
-        );
-      }
+      if (mounted) _message('Unable to save port forward: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _setProtocol(String? value) {
+    final protocol = value ?? 'tcp';
+    setState(() {
+      _protocol = protocol;
+      if (!NatRepository.protocolSupportsPorts(protocol)) {
+        _sourcePort.clear();
+        _destinationPort.clear();
+        _targetPort.clear();
+      }
+    });
+  }
+
+  void _message(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   @override
@@ -303,6 +397,15 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
           TextField(
             controller: _description,
             decoration: const InputDecoration(labelText: 'Description'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _sequence,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Sequence',
+              helperText: '1–999999; the OPNsense default is loaded for new rules.',
+            ),
           ),
           const SizedBox(height: 12),
           if (_interfaceChoices.isNotEmpty)
@@ -357,8 +460,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
                     ),
                     DropdownMenuItem(value: 'any', child: Text('Any')),
                   ],
-                  onChanged: (value) =>
-                      setState(() => _protocol = value ?? 'tcp'),
+                  onChanged: _setProtocol,
                 ),
               ),
             ],
@@ -371,8 +473,9 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
             label: 'Source network / alias',
             choices: _networkChoices,
             prefixIcon: Icons.call_made_outlined,
-            hintText: 'any, LAN net, IP/CIDR, alias',
-            helperText: 'Select a special network/address or alias, or type an IP/CIDR.',
+            hintText: 'any, LAN network, IP/CIDR, alias',
+            helperText:
+                'Select a special network/address or alias, or type an IP/CIDR.',
             searchHint: 'Search networks and aliases',
           ),
           const SizedBox(height: 10),
@@ -380,9 +483,12 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
             controller: _sourcePort,
             label: 'Source port / alias / range',
             choices: _portChoices,
+            enabled: _portsSupported,
             prefixIcon: Icons.numbers_outlined,
-            hintText: 'any, https, 443, 10000-20000, PORT_ALIAS',
-            helperText: 'Service name, port alias, numeric port or range.',
+            hintText: 'https, 443, 10000-20000, PORT_ALIAS',
+            helperText: _portsSupported
+                ? 'Leave blank for any port. Use a service, alias, number or range.'
+                : 'Ports only apply to TCP, UDP or TCP/UDP.',
             searchHint: 'Search services and port aliases',
           ),
           SwitchListTile.adaptive(
@@ -401,7 +507,8 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
             choices: _networkChoices,
             prefixIcon: Icons.call_received_outlined,
             hintText: 'WAN address, any, IP/CIDR, alias',
-            helperText: 'Select a special network/address or alias, or type an IP/CIDR.',
+            helperText:
+                'Select the receiving address/network or alias. Interface addresses are available in the selector.',
             searchHint: 'Search networks and aliases',
           ),
           const SizedBox(height: 10),
@@ -409,9 +516,12 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
             controller: _destinationPort,
             label: 'Destination port / alias / range',
             choices: _portChoices,
+            enabled: _portsSupported,
             prefixIcon: Icons.numbers_outlined,
             hintText: 'https, 443, 5060, 10000-20000, PORT_ALIAS',
-            helperText: 'Service name, port alias, numeric port or range.',
+            helperText: _portsSupported
+                ? 'Leave blank for any port. Use a service, alias, number or range.'
+                : 'Ports only apply to TCP, UDP or TCP/UDP.',
             searchHint: 'Search services and port aliases',
           ),
           SwitchListTile.adaptive(
@@ -438,9 +548,12 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
             controller: _targetPort,
             label: 'Redirect target port',
             choices: _portChoices,
+            enabled: _portsSupported,
             prefixIcon: Icons.numbers_outlined,
-            hintText: 'any, https, 443, PORT_ALIAS',
-            helperText: 'Use any to preserve the destination port/range. A target range is calculated from its first port.',
+            hintText: 'https, 443, PORT_ALIAS',
+            helperText: _portsSupported
+                ? 'Leave blank to preserve the original destination port/range.'
+                : 'Ports only apply to TCP, UDP or TCP/UDP.',
             searchHint: 'Search services and port aliases',
           ),
           const SizedBox(height: 12),
@@ -508,7 +621,7 @@ class _NatRuleEditorState extends State<NatRuleEditor> {
             child: Padding(
               padding: EdgeInsets.all(14),
               child: Text(
-                'Sentinel applies Destination NAT changes with rollback protection and verifies management reachability before confirming them.',
+                'Sentinel validates and saves Destination NAT through the OPNsense model API, then calls the official firewall apply action.',
               ),
             ),
           ),
