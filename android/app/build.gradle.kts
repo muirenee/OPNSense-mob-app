@@ -10,6 +10,10 @@ val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 val hasReleaseSigning = keystorePropertiesFile.exists()
 val requireReleaseSigning = System.getenv("SENTINEL_REQUIRE_RELEASE_SIGNING") == "true"
+val admobAppId = System.getenv("SENTINEL_ADMOB_APP_ID")
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: "ca-app-pub-3940256099942544~3347511713"
 
 if (hasReleaseSigning) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
@@ -35,6 +39,7 @@ android {
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["admobAppId"] = admobAppId
     }
 
     signingConfigs {

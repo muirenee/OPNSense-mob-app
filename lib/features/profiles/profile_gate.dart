@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/ads/ad_service.dart';
 import '../../core/licensing/license_repository.dart';
 import '../../core/storage/profile_repository.dart';
 import '../shell/main_shell.dart';
@@ -11,12 +12,14 @@ class ProfileGate extends StatefulWidget {
     super.key,
     required this.repository,
     required this.licenseRepository,
+    required this.adService,
     required this.themeMode,
     required this.onThemeModeChanged,
   });
 
   final ProfileRepository repository;
   final LicenseRepository licenseRepository;
+  final AdService adService;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
 
@@ -66,6 +69,7 @@ class _ProfileGateState extends State<ProfileGate> {
         return MainShell(
           repository: widget.repository,
           licenseRepository: widget.licenseRepository,
+          adService: widget.adService,
           profile: selected,
           credentials: credentials,
           themeMode: widget.themeMode,

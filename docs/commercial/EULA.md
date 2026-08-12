@@ -2,45 +2,48 @@
 
 **Effective date: 12 August 2026**
 
-This is the commercial-release engineering draft. It must be reviewed for the publisher's legal entity and governing law before broad paid distribution.
+This is the release engineering draft for Netsource Sentinel Free v1.1. It should be reviewed for the publisher's legal entity and governing law before broad public distribution or before any paid plan is enabled.
 
 ## 1. License grant
-Subject to payment of applicable fees and compliance with this agreement, the publisher grants the user a limited, non-exclusive, non-transferable right to install and use Netsource Sentinel for lawful administration of systems the user owns or is authorized to manage.
+Subject to compliance with this agreement, the publisher grants the user a limited, non-exclusive, non-transferable right to install and use Netsource Sentinel for lawful administration of systems the user owns or is authorized to manage.
 
-## 2. Subscription and device limits
-Commercial plans may limit firewall profiles, installations or enabled features. License entitlements may be periodically validated and may include an offline grace period.
+## 2. Free edition
+Netsource Sentinel Free permits one saved real-firewall profile and provides the supported management feature set for that firewall. The Free edition may display advertising on selected non-sensitive overview screens. Demo Mode is not counted as a real firewall profile and is ad-free.
 
-## 3. Acceptable use
+## 3. Future commercial plans
+The publisher may later offer Pro/MSP or other commercial entitlements with different firewall limits, ad-free use or additional features. The current Free build does not offer a purchase flow. Future commercial entitlements may be periodically validated and may include an offline grace period.
+
+## 4. Acceptable use
 The user must not use Netsource Sentinel to obtain unauthorized access to networks, devices or data. The user is responsible for firewall changes performed through the application and for maintaining backups, emergency/console access and appropriate change-control procedures.
 
-## 4. Credentials
-The user is responsible for creating least-privilege firewall API credentials and protecting them. The application stores API credentials locally using operating-system secure storage. The licensing service is not designed to receive firewall API keys or secrets.
+## 5. Credentials
+The user is responsible for creating least-privilege firewall API credentials and protecting them. The application stores API credentials locally using operating-system secure storage. Firewall API keys and secrets are not provided to advertising services and are not designed to be sent to a future Sentinel licensing service.
 
-## 5. Third-party software and trademarks
-Netsource Sentinel is an independent management application. OPNsense is a trademark of Deciso B.V. Netsource Sentinel is not affiliated with, endorsed by or produced by Deciso B.V. Open-source and third-party components remain subject to their respective licenses.
+## 6. Third-party software, services and trademarks
+Netsource Sentinel is an independent management application. OPNsense is a trademark of Deciso B.V. Netsource Sentinel is not affiliated with, endorsed by or produced by Deciso B.V. The Free edition uses Google advertising and consent-management services. Open-source and third-party components/services remain subject to their respective licenses and terms.
 
-## 6. Updates and compatibility
+## 7. Updates and compatibility
 The publisher may provide updates to maintain compatibility, security and functionality. Some features depend on firewall versions, installed plugins and API privileges and therefore may not be available on every installation.
 
-## 7. No warranty
+## 8. No warranty
 To the maximum extent permitted by applicable law, the software is provided on an "as is" and "as available" basis without a warranty that every firewall configuration, plugin or API version will be supported or that operation will be uninterrupted.
 
-## 8. Limitation of liability
+## 9. Limitation of liability
 To the maximum extent permitted by applicable law, the publisher is not liable for indirect, incidental, special or consequential loss arising from use of the application. The user remains responsible for reviewing and validating changes applied to production firewalls.
 
-## 9. Subscription, suspension and termination
-A commercial entitlement may be suspended or terminated for material breach, fraudulent activation, cancellation or non-payment. Termination does not require deletion of locally stored firewall profiles; the application may fall back to the capabilities and limits of its Free entitlement.
+## 10. Suspension and termination
+A future commercial entitlement may be suspended or terminated for material breach, fraudulent activation, cancellation or non-payment. Where applicable, the application may fall back to the capabilities and limits of its Free entitlement.
 
-## 10. Ownership
+## 11. Ownership
 Except for third-party components, the publisher retains all rights, title and interest in Netsource Sentinel not expressly granted by this agreement.
 
-## 11. Changes to terms
-Updated terms may apply to future versions or renewals as permitted by applicable law. Material changes should be communicated through the website, application or subscription communications as appropriate.
+## 12. Changes to terms
+Updated terms may apply to future versions as permitted by applicable law. Material changes should be communicated through the website or application as appropriate.
 
-## 12. Contact
-Commercial licensing and agreement questions: **support@fidalix.com**
+## 13. Contact
+Agreement questions: **support@fidalix.com**
 
 ---
 
 ### Release-owner action
-Before production launch, add the legal publisher name/address, governing law/jurisdiction, refund/cancellation terms, tax/invoicing terms where applicable, and any mandatory consumer-law wording for markets in which the product is sold.
+Before production launch, add the legal publisher name/address and governing law/jurisdiction. Before enabling a paid plan, also add applicable refund/cancellation, tax/invoicing and consumer-law terms for the markets in which the product is sold.

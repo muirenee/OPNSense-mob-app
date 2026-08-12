@@ -2,14 +2,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:netsource_opn_manager/core/licensing/license_models.dart';
 
 void main() {
-  test('free entitlement allows one firewall', () {
+  test('free entitlement allows one firewall and enables ads', () {
     final entitlement = LicenseEntitlement.free();
     expect(entitlement.plan, LicensePlan.free);
     expect(entitlement.maxFirewalls, 1);
     expect(entitlement.isUsable, isTrue);
+    expect(entitlement.adsEnabled, isTrue);
+    expect(entitlement.isCommercial, isFalse);
+    expect(entitlement.hasFeature('ad-supported'), isTrue);
   });
 
-  test('commercial entitlement parses server payload', () {
+  test('commercial entitlement parses server payload and disables ads', () {
     final entitlement = LicenseEntitlement.fromJson({
       'plan': 'professional',
       'status': 'active',
@@ -24,9 +27,11 @@ void main() {
     expect(entitlement.maxFirewalls, 5);
     expect(entitlement.hasFeature('multi-firewall'), isTrue);
     expect(entitlement.leaseToken, 'opaque-lease');
+    expect(entitlement.adsEnabled, isFalse);
+    expect(entitlement.isCommercial, isTrue);
   });
 
-  test('revoked entitlement is not usable', () {
+  test('revoked entitlement is not usable and does not enable ads', () {
     final entitlement = LicenseEntitlement.fromJson({
       'plan': 'personal',
       'status': 'revoked',
@@ -35,5 +40,7 @@ void main() {
       'lease_token': 'revoked-token',
     });
     expect(entitlement.isUsable, isFalse);
+    expect(entitlement.adsEnabled, isFalse);
+    expect(entitlement.isCommercial, isFalse);
   });
 }

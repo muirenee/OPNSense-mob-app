@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/opnsense_api_client.dart';
+import '../../core/app_info.dart';
 import '../../core/licensing/license_repository.dart';
 import '../../core/storage/profile_repository.dart';
 import '../legal/legal_screen.dart';
@@ -71,10 +72,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     if (adding &&
         !widget.licenseRepository.canAddFirewall(widget.repository.profiles.length)) {
       setState(() {
-        _message =
-            'Your ${widget.licenseRepository.entitlement.planLabel} plan allows '
-            '${widget.licenseRepository.entitlement.maxFirewalls} firewall profile(s). '
-            'Activate a higher plan to add another firewall.';
+        _message = AppInfo.commercialLicensingEnabled
+            ? 'Your ${widget.licenseRepository.entitlement.planLabel} plan allows '
+                '${widget.licenseRepository.entitlement.maxFirewalls} firewall profile(s).'
+            : 'Sentinel Free supports one firewall. Edit or delete the saved firewall to replace it. Multiple-firewall management will be available with Sentinel Pro.';
       });
       return;
     }
@@ -167,15 +168,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     final profiles = widget.repository.profiles;
     final isEditing = widget.initialProfile != null;
     final entitlement = widget.licenseRepository.entitlement;
+    final limitReached = !isEditing &&
+        !widget.licenseRepository.canAddFirewall(profiles.length);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(isEditing ? 'Edit firewall' : 'Netsource Sentinel'),
         actions: [
           IconButton(
-            tooltip: 'License',
+            tooltip: 'Plan',
             onPressed: _openLicense,
-            icon: const Icon(Icons.verified_outlined),
+            icon: const Icon(Icons.shield_outlined),
           ),
         ],
       ),
@@ -265,6 +268,24 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               ),
               const SizedBox(height: 20),
             ],
+            if (limitReached) ...[
+              Card(
+                child: ListTile(
+                  leading: Icon(
+                    Icons.lock_outline,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  title: const Text(
+                    'Free plan limit reached',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: const Text(
+                    'Sentinel Free manages one firewall. You can edit or delete the saved firewall above. Sentinel Pro will add multiple-firewall management later.',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
             Icon(
               Icons.shield_outlined,
               size: 58,
@@ -272,7 +293,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Connect a firewall',
+              isEditing ? 'Edit firewall connection' : 'Connect a firewall',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w800,
@@ -286,6 +307,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             const SizedBox(height: 24),
             TextField(
               controller: _name,
+              enabled: !limitReached,
               decoration: const InputDecoration(
                 labelText: 'Firewall name',
                 prefixIcon: Icon(Icons.badge_outlined),
@@ -294,6 +316,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _url,
+              enabled: !limitReached,
               keyboardType: TextInputType.url,
               autocorrect: false,
               decoration: const InputDecoration(
@@ -305,6 +328,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _apiKey,
+              enabled: !limitReached,
               autocorrect: false,
               decoration: const InputDecoration(
                 labelText: 'API key',
@@ -314,14 +338,16 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _apiSecret,
+              enabled: !limitReached,
               obscureText: _obscureSecret,
               autocorrect: false,
               decoration: InputDecoration(
                 labelText: 'API secret',
                 prefixIcon: const Icon(Icons.password_outlined),
                 suffixIcon: IconButton(
-                  onPressed: () =>
-                      setState(() => _obscureSecret = !_obscureSecret),
+                  onPressed: limitReached
+                      ? null
+                      : () => setState(() => _obscureSecret = !_obscureSecret),
                   icon: Icon(
                     _obscureSecret ? Icons.visibility : Icons.visibility_off,
                   ),
@@ -332,7 +358,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               value: _allowSelfSigned,
-              onChanged: (value) => setState(() => _allowSelfSigned = value),
+              onChanged: limitReached
+                  ? null
+                  : (value) => setState(() => _allowSelfSigned = value),
               title: const Text('Allow self-signed certificate'),
               subtitle: const Text(
                 'Use only for a trusted firewall you control. Valid CA certificates remain recommended.',
@@ -352,7 +380,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             ],
             const SizedBox(height: 18),
             FilledButton.icon(
-              onPressed: _busy ? null : _saveAndConnect,
+              onPressed: _busy || limitReached ? null : _saveAndConnect,
               icon: _busy
                   ? const SizedBox(
                       width: 18,
@@ -372,7 +400,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                TextButton(onPressed: _openLicense, child: const Text('License')),
+                TextButton(onPressed: _openLicense, child: const Text('Plan')),
                 TextButton(onPressed: _openLegal, child: const Text('Privacy & EULA')),
               ],
             ),

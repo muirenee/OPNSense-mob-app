@@ -4,10 +4,10 @@
 Netsource Sentinel
 
 ## Short description
-Manage compatible OPNsense firewalls securely from your Android device.
+Manage one compatible OPNsense firewall from Android with powerful mobile tools.
 
 ## Full description
-Netsource Sentinel is an independent mobile management client for compatible OPNsense firewalls. It gives administrators a modern mobile view of firewall health and provides carefully scoped management tools for day-to-day operations.
+Netsource Sentinel is an independent mobile management client for compatible OPNsense firewalls. The Free edition lets administrators connect one firewall and use the supported management feature set from a modern Android interface.
 
 ### Monitor at a glance
 - System health, memory and storage
@@ -37,7 +37,12 @@ Netsource Sentinel is an independent mobile management client for compatible OPN
 - Capability checks to identify unsupported endpoints or missing permissions
 - Demo Mode uses local sample data, so the app can be explored without connecting to a firewall
 
-Netsource Sentinel connects directly to the firewall address configured by the administrator. Firewall API credentials are not sent to the Netsource Sentinel licensing service.
+### Free edition
+Netsource Sentinel Free supports **one saved firewall** and includes the supported management features for that firewall. The Free edition is supported by advertising on selected top-level overview screens. Ads are not shown in Demo Mode or while entering firewall credentials and using add/edit/action screens.
+
+A future Sentinel Pro edition may add multiple-firewall management and an ad-free experience. No Pro purchase flow is enabled in this Free release.
+
+Netsource Sentinel connects directly to the firewall address configured by the administrator. Firewall API credentials are not sent to Google, advertisers or the Netsource Sentinel licensing service.
 
 Netsource Sentinel is independently developed. OPNsense is a trademark of Deciso B.V. This application is not affiliated with, endorsed by or produced by Deciso B.V.
 
@@ -50,16 +55,16 @@ Firewall, network administration, network monitoring, VPN, security, IT administ
 ## Contact
 Support: support@fidalix.com
 
-## Release notes — 1.0.0
-- New permanent Android package: com.netsource.sentinel
-- Android 16 / API 36 target
-- Google Play Android App Bundle build
-- Demo Mode with local sample firewall data
-- Commercial licensing foundation with Personal, Professional and MSP entitlements
-- In-app Privacy Policy, EULA and third-party notices
-- Users/Groups, Captive Portal, KEA DHCP, firewall management and diagnostics milestone features
+## Release notes — 1.1.0
+- Free edition with one-firewall limit
+- Ad-supported top-level overview experience
+- Google User Messaging Platform consent integration
+- Ad privacy choices when required
+- Ads excluded from Demo Mode and sensitive/action screens
+- Existing Demo Mode, API 36 support, firewall/NAT/network/VPN management and diagnostics retained
+- Future Pro/MSP entitlement architecture retained without enabling a purchase flow
 
 ## Reviewer notes
-No account is required to review the main application experience. On the first screen choose **Explore Demo Mode**. Demo Mode uses only local sample data and does not contact or modify a firewall.
+No account is required to review the main application experience. On the first screen choose **Explore Demo Mode**. Demo Mode uses only local sample data, does not contact or modify a firewall, and does not display ads.
 
-To test a real firewall connection, the reviewer would need a reachable compatible OPNsense installation and an API key/secret with appropriate privileges. The publisher should not provide production firewall credentials in Play Console.
+The production Free build uses Google Mobile Ads on selected top-level screens when consent/eligibility allows ads to be requested. To test a real firewall connection, a reviewer would need a reachable compatible OPNsense installation and an API key/secret with appropriate privileges. Do not provide production firewall credentials in Play Console.
