@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/ads/ad_service.dart';
+import '../../core/ads/sentinel_banner.dart';
 import '../../core/app_info.dart';
 import '../../core/licensing/license_repository.dart';
 import '../../core/storage/profile_repository.dart';
@@ -24,6 +26,7 @@ class MainShell extends StatefulWidget {
     super.key,
     required this.repository,
     required this.licenseRepository,
+    required this.adService,
     required this.profile,
     required this.credentials,
     required this.themeMode,
@@ -32,6 +35,7 @@ class MainShell extends StatefulWidget {
 
   final ProfileRepository repository;
   final LicenseRepository licenseRepository;
+  final AdService adService;
   final FirewallProfile profile;
   final FirewallCredentials credentials;
   final ThemeMode themeMode;
@@ -43,6 +47,22 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.licenseRepository.addListener(_refreshEntitlement);
+  }
+
+  @override
+  void dispose() {
+    widget.licenseRepository.removeListener(_refreshEntitlement);
+    super.dispose();
+  }
+
+  void _refreshEntitlement() {
+    if (mounted) setState(() {});
+  }
 
   void _selectTab(int index) {
     if (index < 0 || index > 4 || index == _index) return;
@@ -81,12 +101,16 @@ class _MainShellState extends State<MainShell> {
       _MoreScreen(
         repository: widget.repository,
         licenseRepository: widget.licenseRepository,
+        adService: widget.adService,
         profile: widget.profile,
         credentials: widget.credentials,
         themeMode: widget.themeMode,
         onThemeModeChanged: widget.onThemeModeChanged,
       ),
     ];
+    final showAds = !widget.profile.isDemo &&
+        AppInfo.adsEnabled &&
+        widget.licenseRepository.entitlement.adsEnabled;
 
     return Scaffold(
       appBar: AppBar(
@@ -146,7 +170,12 @@ class _MainShellState extends State<MainShell> {
           const SizedBox(width: 6),
         ],
       ),
-      body: IndexedStack(index: _index, children: pages),
+      body: Column(
+        children: [
+          Expanded(child: IndexedStack(index: _index, children: pages)),
+          SentinelBanner(adService: widget.adService, visible: showAds),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: _selectTab,
@@ -182,6 +211,7 @@ class _MoreScreen extends StatelessWidget {
   const _MoreScreen({
     required this.repository,
     required this.licenseRepository,
+    required this.adService,
     required this.profile,
     required this.credentials,
     required this.themeMode,
@@ -190,6 +220,7 @@ class _MoreScreen extends StatelessWidget {
 
   final ProfileRepository repository;
   final LicenseRepository licenseRepository;
+  final AdService adService;
   final FirewallProfile profile;
   final FirewallCredentials credentials;
   final ThemeMode themeMode;
@@ -199,8 +230,17 @@ class _MoreScreen extends StatelessWidget {
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
   }
 
+  Future<void> _showPrivacyChoices(BuildContext context) async {
+    await adService.showPrivacyOptions();
+    if (!context.mounted || adService.lastError == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(adService.lastError!)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final entitlement = licenseRepository.entitlement;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -336,11 +376,16 @@ class _MoreScreen extends StatelessWidget {
           child: Column(
             children: [
               ListTile(
-                leading: const Icon(Icons.verified_outlined),
-                title: const Text('License & subscription'),
+                leading: Icon(
+                  entitlement.adsEnabled
+                      ? Icons.ads_click_outlined
+                      : Icons.verified_outlined,
+                ),
+                title: Text('${entitlement.planLabel} plan'),
                 subtitle: Text(
-                  '${licenseRepository.entitlement.planLabel} · '
-                  'up to ${licenseRepository.entitlement.maxFirewalls} firewall(s)',
+                  entitlement.adsEnabled
+                      ? '1 firewall · ad-supported · full management features'
+                      : 'Up to ${entitlement.maxFirewalls} firewalls · ad-free',
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _open(
@@ -348,12 +393,23 @@ class _MoreScreen extends StatelessWidget {
                   LicenseScreen(repository: licenseRepository),
                 ),
               ),
+              if (adService.privacyOptionsRequired) ...[
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.tune_outlined),
+                  title: const Text('Ad privacy choices'),
+                  subtitle: const Text('Review or change advertising consent choices'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _showPrivacyChoices(context),
+                ),
+              ],
               const Divider(height: 1),
-              const ListTile(
-                leading: Icon(Icons.privacy_tip_outlined),
-                title: Text('Legal & privacy'),
-                subtitle: Text('Privacy Policy, EULA and third-party notices'),
-                trailing: Icon(Icons.chevron_right),
+              ListTile(
+                leading: const Icon(Icons.privacy_tip_outlined),
+                title: const Text('Legal & privacy'),
+                subtitle: const Text('Privacy Policy, EULA and third-party notices'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _open(context, const LegalScreen()),
               ),
               const Divider(height: 1),
               ListTile(
@@ -402,8 +458,10 @@ class _MoreScreen extends StatelessWidget {
                 title: Text(
                   '${AppInfo.name} · Version ${AppInfo.version} (${AppInfo.buildNumber})',
                 ),
-                subtitle: const Text(
-                  'Commercial-release foundation · API 36 · Demo Mode · licensing',
+                subtitle: Text(
+                  AppInfo.usesTestAds
+                      ? 'Free release · API 36 · AdMob test configuration'
+                      : 'Free release · API 36 · AdMob + consent management',
                 ),
               ),
               const Divider(height: 1),
