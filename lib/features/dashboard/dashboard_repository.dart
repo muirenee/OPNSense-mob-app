@@ -7,11 +7,15 @@ class DashboardRepository {
   final OpnSenseApiClient api;
 
   Future<DashboardSnapshot> load() async {
+    // OPNsense OverviewController::interfacesInfoAction accepts the detailed
+    // flag as an action argument (/interfaces_info/1), not as ?details=true.
+    // Passing details as a query parameter is interpreted by the recordset
+    // search helper and can return HTTP 400 on 26.7.
     final results = await Future.wait<Map<String, dynamic>>([
       api.getJson('/api/diagnostics/system/system_information'),
       api.getJson('/api/diagnostics/system/system_resources'),
       api.getJson('/api/diagnostics/system/system_disk'),
-      api.getJson('/api/interfaces/overview/interfaces_info?details=true'),
+      api.getJson('/api/interfaces/overview/interfaces_info/1'),
     ]);
 
     return DashboardSnapshot(
@@ -75,12 +79,30 @@ class DashboardRepository {
 
   static List<String> _extractAddresses(Map<String, dynamic> item) {
     final addresses = <String>[];
-    for (final key in ['ipaddr', 'ipaddrv6', 'address', 'ipv4', 'ipv6']) {
+
+    // OPNsense 26.7 detailed overview returns addr4/addr6 as the primary
+    // address strings and ipv4/ipv6 as lists of address objects. Older builds
+    // and some proxy normalizers may still expose the compact keys below.
+    for (final key in ['addr4', 'addr6', 'ipaddr', 'ipaddrv6', 'address']) {
       final value = item[key];
       if (value is String && value.trim().isNotEmpty) {
         addresses.add(value.trim());
-      } else if (value is List) {
-        addresses.addAll(value.whereType<String>().where((v) => v.isNotEmpty));
+      }
+    }
+
+    for (final key in ['ipv4', 'ipv6']) {
+      final value = item[key];
+      if (value is List) {
+        for (final entry in value) {
+          if (entry is String && entry.trim().isNotEmpty) {
+            addresses.add(entry.trim());
+          } else if (entry is Map) {
+            final address = entry['ipaddr']?.toString().trim() ?? '';
+            if (address.isNotEmpty) addresses.add(address);
+          }
+        }
+      } else if (value is String && value.trim().isNotEmpty) {
+        addresses.add(value.trim());
       }
     }
     return addresses.toSet().toList();
