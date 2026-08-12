@@ -2,14 +2,11 @@ class AppInfo {
   const AppInfo._();
 
   static const String name = 'Netsource Sentinel';
-  static const String version = '1.1.2';
-  static const int buildNumber = 112;
+  static const String version = '1.1.4';
+  static const int buildNumber = 114;
   static const String packageId = 'com.netsource.sentinel';
   static const String supportEmail = 'support@fidalix.com';
 
-  /// Production builds can point these to the public pages configured in
-  /// Google Play. Keeping the defaults empty prevents preview builds from
-  /// advertising URLs that may not have been published yet.
   static const String privacyPolicyUrl = String.fromEnvironment(
     'SENTINEL_PRIVACY_POLICY_URL',
     defaultValue: '',
@@ -19,23 +16,24 @@ class AppInfo {
     defaultValue: '',
   );
 
-  /// Recovery build: advertising is disabled at binary level while the startup
-  /// crash introduced by the first ad-supported release is isolated. The Free
-  /// entitlement remains limited to one firewall and the ad architecture stays
-  /// available for a later safe reintroduction.
-  static const bool adsEnabled = false;
+  /// Diagnostic candidate: initialize Google's separate GMA Next-Gen Android
+  /// SDK after Sentinel is already running. No UMP and no banner are loaded in
+  /// this build; the purpose is to isolate the ads engine itself.
+  static const bool adsEnabled = true;
+  static const String googleTestAdMobAppId =
+      'ca-app-pub-3940256099942544~3347511713';
+  static const String adMobAppId = String.fromEnvironment(
+    'SENTINEL_ADMOB_APP_ID',
+    defaultValue: googleTestAdMobAppId,
+  );
   static const String adMobBannerAdUnitId = '';
-  static const bool usesTestAds = false;
+  static bool get usesTestAds => adMobAppId == googleTestAdMobAppId;
 
-  /// Keep commercial activation dormant in the public Free release. The
-  /// licensing architecture remains in place so Play Billing or the Sentinel
-  /// license backend can enable Pro/MSP later without changing app identity.
   static const bool commercialLicensingEnabled = bool.fromEnvironment(
     'SENTINEL_COMMERCIAL_LICENSING_ENABLED',
     defaultValue: false,
   );
 
-  /// Future commercial releases can point this at the entitlement service.
   static const String licenseApiUrl = String.fromEnvironment(
     'SENTINEL_LICENSE_API_URL',
     defaultValue: '',

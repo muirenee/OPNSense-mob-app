@@ -10,10 +10,6 @@ val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 val hasReleaseSigning = keystorePropertiesFile.exists()
 val requireReleaseSigning = System.getenv("SENTINEL_REQUIRE_RELEASE_SIGNING") == "true"
-val admobAppId = System.getenv("SENTINEL_ADMOB_APP_ID")
-    ?.trim()
-    ?.takeIf { it.isNotEmpty() }
-    ?: "ca-app-pub-3940256099942544~3347511713"
 
 if (hasReleaseSigning) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
@@ -35,11 +31,11 @@ android {
 
     defaultConfig {
         applicationId = "com.netsource.sentinel"
-        minSdk = flutter.minSdkVersion
+        // GMA Next-Gen SDK 1.3.0 requires Android API 24 or newer.
+        minSdk = 24
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["admobAppId"] = admobAppId
     }
 
     signingConfigs {
@@ -65,6 +61,12 @@ android {
             }
         }
     }
+}
+
+dependencies {
+    // Isolated diagnostic integration: Google's separate GMA Next-Gen SDK.
+    // UMP and banner rendering are intentionally excluded from this candidate.
+    implementation("com.google.android.libraries.ads.mobile.sdk:ads-mobile-sdk:1.3.0")
 }
 
 kotlin {
