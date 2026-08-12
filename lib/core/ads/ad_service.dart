@@ -1,105 +1,18 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-import 'ad_config.dart';
-
+/// No-op advertising service used by the v1.1.2 recovery build.
+///
+/// The Free entitlement and UI hooks remain intact, but the Google Mobile Ads
+/// native plugin is deliberately not linked into this binary. This lets us
+/// prove whether the launch regression is inside the advertising SDK layer.
 class AdService extends ChangeNotifier {
-  bool _initializing = false;
-  bool _initialized = false;
-  bool _canRequestAds = false;
-  bool _mobileAdsInitialized = false;
-  bool _privacyOptionsRequired = false;
-  String? _lastError;
+  bool get initialized => true;
+  bool get canRequestAds => false;
+  bool get privacyOptionsRequired => false;
+  bool get usingTestAds => false;
+  String? get lastError => null;
 
-  bool get initialized => _initialized;
-  bool get canRequestAds => AdConfig.enabled && _canRequestAds;
-  bool get privacyOptionsRequired => _privacyOptionsRequired;
-  bool get usingTestAds => AdConfig.usingTestAds;
-  String? get lastError => _lastError;
+  Future<void> initialize() async {}
 
-  /// Advertising must never be able to take the firewall manager down.
-  /// Any UMP/plugin/device failure disables ads for this app session and is
-  /// retained only as a diagnostic message for the privacy/settings screen.
-  Future<void> initialize() async {
-    if (_initialized || _initializing) return;
-    _initializing = true;
-    _lastError = null;
-
-    try {
-      if (!AdConfig.enabled) return;
-
-      final update = Completer<FormError?>();
-      ConsentInformation.instance.requestConsentInfoUpdate(
-        ConsentRequestParameters(),
-        () {
-          if (!update.isCompleted) update.complete(null);
-        },
-        (FormError error) {
-          if (!update.isCompleted) update.complete(error);
-        },
-      );
-
-      final updateError = await update.future;
-      if (updateError != null) {
-        _lastError = updateError.message;
-      } else {
-        final form = Completer<FormError?>();
-        ConsentForm.loadAndShowConsentFormIfRequired((FormError? error) {
-          if (!form.isCompleted) form.complete(error);
-        });
-        final formError = await form.future;
-        if (formError != null) _lastError = formError.message;
-      }
-
-      await _refreshConsentState();
-    } catch (error) {
-      _lastError = error.toString();
-      _canRequestAds = false;
-    } finally {
-      _initialized = true;
-      _initializing = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> showPrivacyOptions() async {
-    if (!_privacyOptionsRequired) return;
-    try {
-      final form = Completer<FormError?>();
-      ConsentForm.showPrivacyOptionsForm((FormError? error) {
-        if (!form.isCompleted) form.complete(error);
-      });
-      final error = await form.future;
-      if (error != null) {
-        _lastError = error.message;
-      } else {
-        _lastError = null;
-      }
-      await _refreshConsentState();
-    } catch (error) {
-      _lastError = error.toString();
-      _canRequestAds = false;
-    } finally {
-      notifyListeners();
-    }
-  }
-
-  Future<void> _refreshConsentState() async {
-    try {
-      _privacyOptionsRequired =
-          await ConsentInformation.instance.getPrivacyOptionsRequirementStatus() ==
-              PrivacyOptionsRequirementStatus.required;
-      _canRequestAds = await ConsentInformation.instance.canRequestAds();
-
-      if (_canRequestAds && !_mobileAdsInitialized) {
-        await MobileAds.instance.initialize();
-        _mobileAdsInitialized = true;
-      }
-    } catch (error) {
-      _lastError ??= error.toString();
-      _canRequestAds = false;
-    }
-  }
+  Future<void> showPrivacyOptions() async {}
 }
