@@ -33,6 +33,7 @@ class LicenseEntitlement {
           'vpn-management',
           'diagnostics',
           'demo-mode',
+          'ad-supported',
         },
       );
 
@@ -52,6 +53,12 @@ class LicenseEntitlement {
     if (expiresAt != null && now.isAfter(expiresAt!.toUtc())) return false;
     return true;
   }
+
+  bool get isCommercial => isUsable && plan != LicensePlan.free;
+
+  /// Advertising is part of the Free product entitlement. Future paid plans
+  /// automatically become ad-free without changing the screen-level ad logic.
+  bool get adsEnabled => isUsable && plan == LicensePlan.free;
 
   bool hasFeature(String feature) => features.contains(feature);
 
