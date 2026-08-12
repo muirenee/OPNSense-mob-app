@@ -1,3 +1,4 @@
+import '../../../core/api/api_choice.dart';
 import '../../../core/api/opnsense_api_client.dart';
 import 'alias_models.dart';
 
@@ -7,7 +8,7 @@ class AliasRepository {
 
   Future<List<FirewallAliasSummary>> load({String search = ''}) async {
     final raw = await api.getData(
-      '/api/firewall/alias/searchItem',
+      '/api/firewall/alias/search_item',
       queryParameters: {
         'current': 1,
         'rowCount': 300,
@@ -31,30 +32,42 @@ class AliasRepository {
   }
 
   Future<void> save({String? uuid, required Map<String, dynamic> values}) async {
-    await api.postData(
+    final raw = await api.postData(
       uuid == null || uuid.isEmpty
           ? '/api/firewall/alias/add_item'
           : '/api/firewall/alias/set_item/${Uri.encodeComponent(uuid)}',
       data: {'alias': values},
     );
-    await api.postData('/api/firewall/alias/reconfigure');
+    _ensureSuccess(raw, 'Save alias');
+    final applied = await api.postData('/api/firewall/alias/reconfigure');
+    _ensureSuccess(applied, 'Reconfigure aliases');
   }
 
   Future<void> setEnabled(FirewallAliasSummary alias, bool enabled) async {
     if (alias.uuid.isEmpty) throw StateError('Alias UUID is missing.');
-    await api.postData('/api/firewall/alias/toggleItem/${Uri.encodeComponent(alias.uuid)}/${enabled ? 1 : 0}');
-    await api.postData('/api/firewall/alias/reconfigure');
+    final raw = await api.postData(
+      '/api/firewall/alias/toggle_item/${Uri.encodeComponent(alias.uuid)}/${enabled ? 1 : 0}',
+    );
+    _ensureSuccess(raw, enabled ? 'Enable alias' : 'Disable alias');
+    final applied = await api.postData('/api/firewall/alias/reconfigure');
+    _ensureSuccess(applied, 'Reconfigure aliases');
   }
 
   Future<void> delete(FirewallAliasSummary alias) async {
     if (alias.uuid.isEmpty) throw StateError('Alias UUID is missing.');
-    await api.postData('/api/firewall/alias/delItem/${Uri.encodeComponent(alias.uuid)}');
-    await api.postData('/api/firewall/alias/reconfigure');
+    final raw = await api.postData(
+      '/api/firewall/alias/del_item/${Uri.encodeComponent(alias.uuid)}',
+    );
+    _ensureSuccess(raw, 'Delete alias');
+    final applied = await api.postData('/api/firewall/alias/reconfigure');
+    _ensureSuccess(applied, 'Reconfigure aliases');
   }
 
   static List<FirewallAliasSummary> parse(dynamic raw) {
     dynamic candidate = raw;
-    if (raw is Map) candidate = raw['rows'] ?? raw['items'] ?? raw['aliases'] ?? raw;
+    if (raw is Map) {
+      candidate = raw['rows'] ?? raw['items'] ?? raw['aliases'] ?? raw;
+    }
     final rows = <Map<String, dynamic>>[];
     if (candidate is List) {
       for (final item in candidate) {
@@ -69,14 +82,20 @@ class AliasRepository {
         }
       }
     }
-    return rows.map((row) => FirewallAliasSummary(
-      uuid: _text(row['uuid']),
-      name: _first(row, const ['name', 'aliasname']),
-      type: _first(row, const ['type']),
-      content: _first(row, const ['content', 'address', 'addresses']),
-      description: _first(row, const ['description', 'descr']),
-      enabled: !_truthy(row['disabled']) && _truthy(row['enabled'], defaultValue: true),
-    )).where((item) => item.name.isNotEmpty).toList();
+    return rows
+        .map(
+          (row) => FirewallAliasSummary(
+            uuid: _text(row['uuid']),
+            name: _first(row, const ['name', 'aliasname']),
+            type: _machineValue(row['type']),
+            content: _first(row, const ['content', 'address', 'addresses']),
+            description: _first(row, const ['description', 'descr']),
+            enabled: !_truthy(row['disabled']) &&
+                _truthy(row['enabled'], defaultValue: true),
+          ),
+        )
+        .where((item) => item.name.isNotEmpty)
+        .toList();
   }
 
   static String _first(Map<String, dynamic> row, List<String> keys) {
@@ -87,14 +106,42 @@ class AliasRepository {
     return '';
   }
 
+  static String _machineValue(dynamic value) {
+    if (value is Map || value is Iterable) {
+      final selected = parseApiChoices(value)
+          .where((choice) => choice.selected)
+          .toList();
+      if (selected.length == 1) return selected.single.value;
+      final display = apiChoiceDisplayText(value);
+      if (display.isNotEmpty) return display;
+    }
+    return _text(value);
+  }
+
   static String _text(dynamic value) {
     if (value == null) return '';
-    if (value is List) return value.map(_text).where((e) => e.isNotEmpty).join(', ');
+    if (value is String || value is num || value is bool) {
+      return value.toString().trim();
+    }
+    if (value is List) {
+      final selected = parseApiChoices(value)
+          .where((choice) => choice.selected)
+          .map((choice) => choice.value)
+          .toList();
+      if (selected.isNotEmpty) return selected.join(', ');
+      return value.map(_text).where((e) => e.isNotEmpty).join(', ');
+    }
     if (value is Map) {
-      for (final key in ['selected', 'value', 'name', 'label']) {
+      final selected = parseApiChoices(value)
+          .where((choice) => choice.selected)
+          .map((choice) => choice.value)
+          .toList();
+      if (selected.isNotEmpty) return selected.join(', ');
+      for (final key in const ['value', 'name', 'label']) {
         final text = _text(value[key]);
         if (text.isNotEmpty) return text;
       }
+      return '';
     }
     return value.toString().trim();
   }
@@ -107,5 +154,22 @@ class AliasRepository {
     if (['1', 'true', 'yes', 'on', 'enabled'].contains(text)) return true;
     if (['0', 'false', 'no', 'off', 'disabled'].contains(text)) return false;
     return defaultValue;
+  }
+
+  static void _ensureSuccess(dynamic raw, String operation) {
+    if (raw is! Map) return;
+    final map = Map<String, dynamic>.from(raw);
+    final result = map['result']?.toString().toLowerCase().trim();
+    final status = map['status']?.toString().toLowerCase().trim();
+    if (result == 'failed' || status == 'failed' || status == 'error') {
+      final validation = map['validations'] ?? map['validation'];
+      final detail = validation is Map
+          ? validation.values
+              .map((item) => item.toString().trim())
+              .where((item) => item.isNotEmpty)
+              .join(' · ')
+          : (map['message'] ?? map['error'] ?? '').toString().trim();
+      throw StateError(detail.isEmpty ? '$operation failed.' : '$operation failed: $detail');
+    }
   }
 }
