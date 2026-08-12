@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_choice.dart';
 import '../../core/widgets/api_select_fields.dart';
+import '../../core/widgets/api_text_selector_field.dart';
 import '../audit/audit_repository.dart';
 import 'firewall_models.dart';
+import 'firewall_reference_repository.dart';
 import 'firewall_repository.dart';
 
 class FirewallRuleEditor extends StatefulWidget {
@@ -32,9 +34,12 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
   late final TextEditingController _destinationPort;
   String _action = 'pass';
   String _direction = 'in';
+  String _ipProtocol = 'inet';
   String? _protocol;
   Set<String> _interfaces = <String>{};
   List<ApiChoice> _interfaceChoices = const [];
+  List<ApiChoice> _networkChoices = const [];
+  List<ApiChoice> _portChoices = const [];
   List<ApiChoice> _protocolChoices = const [
     ApiChoice(value: 'any', label: 'Any'),
     ApiChoice(value: 'tcp', label: 'TCP'),
@@ -45,6 +50,8 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
     ApiChoice(value: 'esp', label: 'ESP'),
     ApiChoice(value: 'gre', label: 'GRE'),
   ];
+  bool _sourceNot = false;
+  bool _destinationNot = false;
   bool _enabled = true;
   bool _logging = false;
   bool _busy = false;
@@ -71,7 +78,10 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
       ),
     );
     _source = TextEditingController(
-      text: value(const ['source_net', 'source'], widget.rule?.source ?? ''),
+      text: value(
+        const ['source_net', 'source'],
+        widget.rule?.source.isNotEmpty == true ? widget.rule!.source : 'any',
+      ),
     );
     _sourcePort = TextEditingController(
       text: value(const ['source_port'], widget.rule?.sourcePort ?? ''),
@@ -79,7 +89,9 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
     _destination = TextEditingController(
       text: value(
         const ['destination_net', 'destination'],
-        widget.rule?.destination ?? '',
+        widget.rule?.destination.isNotEmpty == true
+            ? widget.rule!.destination
+            : 'any',
       ),
     );
     _destinationPort = TextEditingController(
@@ -97,8 +109,14 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
       const ['direction'],
       widget.rule?.direction.toLowerCase() ?? 'in',
     ).toLowerCase();
-    if (!const {'in', 'out'}.contains(_direction)) _direction = 'in';
+    if (!const {'in', 'out', 'any'}.contains(_direction)) _direction = 'in';
+    _ipProtocol = value(const ['ipprotocol'], 'inet').toLowerCase();
+    if (!const {'inet', 'inet6', 'inet46'}.contains(_ipProtocol)) {
+      _ipProtocol = 'inet';
+    }
 
+    _sourceNot = _truthy(widget.initial['source_not'], false);
+    _destinationNot = _truthy(widget.initial['destination_not'], false);
     _enabled = widget.rule?.enabled ?? _truthy(widget.initial['enabled'], true);
     _logging = widget.rule?.logging ?? _truthy(widget.initial['log'], false);
     _applyOptions(widget.initial);
@@ -129,10 +147,22 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
     setState(() => _optionsLoading = true);
     try {
       final model = await widget.repository.getRule(widget.rule?.uuid);
-      if (!mounted) return;
-      setState(() => _applyOptions(model));
+      if (mounted) setState(() => _applyOptions(model));
     } catch (_) {
-      // Existing/fallback values remain usable when option metadata is denied.
+      // Existing/fallback values remain usable when model access is denied.
+    }
+
+    try {
+      final references =
+          await FirewallReferenceRepository(widget.repository.api).load();
+      if (mounted) {
+        setState(() {
+          _networkChoices = references.networks;
+          _portChoices = references.ports;
+        });
+      }
+    } catch (_) {
+      // Manual address/port entry remains available without alias lookup ACL.
     } finally {
       if (mounted) setState(() => _optionsLoading = false);
     }
@@ -163,16 +193,27 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
       );
       return;
     }
+    if (_source.text.trim().isEmpty || _destination.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Source and destination are required. Use "any" when unrestricted.'),
+        ),
+      );
+      return;
+    }
     setState(() => _busy = true);
     final values = <String, dynamic>{
       'description': _description.text.trim(),
       'action': _action,
       'direction': _direction,
-      'protocol': _protocol == 'any' ? '' : (_protocol ?? ''),
+      'ipprotocol': _ipProtocol,
+      'protocol': _protocol ?? 'any',
       'interface': _interfaces.toList()..sort(),
       'source_net': _source.text.trim(),
+      'source_not': _sourceNot ? '1' : '0',
       'source_port': _sourcePort.text.trim(),
       'destination_net': _destination.text.trim(),
+      'destination_not': _destinationNot ? '1' : '0',
       'destination_port': _destinationPort.text.trim(),
       'enabled': _enabled ? '1' : '0',
       'log': _logging ? '1' : '0',
@@ -236,14 +277,36 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
             onChanged: (value) => setState(() => _action = value ?? 'pass'),
           ),
           const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _direction,
-            decoration: const InputDecoration(labelText: 'Direction'),
-            items: const [
-              DropdownMenuItem(value: 'in', child: Text('In')),
-              DropdownMenuItem(value: 'out', child: Text('Out')),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _direction,
+                  decoration: const InputDecoration(labelText: 'Direction'),
+                  items: const [
+                    DropdownMenuItem(value: 'in', child: Text('In')),
+                    DropdownMenuItem(value: 'out', child: Text('Out')),
+                    DropdownMenuItem(value: 'any', child: Text('Both')),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _direction = value ?? 'in'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _ipProtocol,
+                  decoration: const InputDecoration(labelText: 'IP version'),
+                  items: const [
+                    DropdownMenuItem(value: 'inet', child: Text('IPv4')),
+                    DropdownMenuItem(value: 'inet6', child: Text('IPv6')),
+                    DropdownMenuItem(value: 'inet46', child: Text('IPv4 + IPv6')),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _ipProtocol = value ?? 'inet'),
+                ),
+              ),
             ],
-            onChanged: (value) => setState(() => _direction = value ?? 'in'),
           ),
           const SizedBox(height: 12),
           ApiSingleSelectField(
@@ -276,32 +339,62 @@ class _FirewallRuleEditorState extends State<FirewallRuleEditor> {
           const SizedBox(height: 16),
           _section(context, 'Source'),
           const SizedBox(height: 8),
-          TextField(
+          ApiTextSelectorField(
             controller: _source,
-            decoration: const InputDecoration(
-              labelText: 'Network / alias',
-              hintText: 'any, 192.168.1.0/24, alias_name',
-            ),
+            label: 'Network / alias',
+            choices: _networkChoices,
+            allowMultiple: true,
+            prefixIcon: Icons.call_made_outlined,
+            hintText: 'any, 192.168.1.0/24, alias_name',
+            helperText: 'Choose a known network/alias or type an IP/CIDR. Multiple values are comma-separated.',
+            searchHint: 'Search networks and aliases',
           ),
           const SizedBox(height: 10),
-          TextField(
+          ApiTextSelectorField(
             controller: _sourcePort,
-            decoration: const InputDecoration(labelText: 'Port / alias'),
+            label: 'Port / alias / range',
+            choices: _portChoices,
+            prefixIcon: Icons.numbers_outlined,
+            hintText: 'any, https, 5060, 10000-20000, PORT_ALIAS',
+            helperText: 'Well-known service, port alias, number or range.',
+            searchHint: 'Search services and port aliases',
           ),
-          const SizedBox(height: 16),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Invert source'),
+            subtitle: const Text('Match everything except this source.'),
+            value: _sourceNot,
+            onChanged: (value) => setState(() => _sourceNot = value),
+          ),
+          const SizedBox(height: 8),
           _section(context, 'Destination'),
           const SizedBox(height: 8),
-          TextField(
+          ApiTextSelectorField(
             controller: _destination,
-            decoration: const InputDecoration(
-              labelText: 'Network / alias',
-              hintText: 'any, 10.0.0.0/24, alias_name',
-            ),
+            label: 'Network / alias',
+            choices: _networkChoices,
+            allowMultiple: true,
+            prefixIcon: Icons.call_received_outlined,
+            hintText: 'any, WAN address, 10.0.0.0/24, alias_name',
+            helperText: 'Choose a known network/alias or type an IP/CIDR. Multiple values are comma-separated.',
+            searchHint: 'Search networks and aliases',
           ),
           const SizedBox(height: 10),
-          TextField(
+          ApiTextSelectorField(
             controller: _destinationPort,
-            decoration: const InputDecoration(labelText: 'Port / alias'),
+            label: 'Port / alias / range',
+            choices: _portChoices,
+            prefixIcon: Icons.numbers_outlined,
+            hintText: 'https, 443, 5060, 10000-20000, PORT_ALIAS',
+            helperText: 'Well-known service, port alias, number or range.',
+            searchHint: 'Search services and port aliases',
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Invert destination'),
+            subtitle: const Text('Match everything except this destination.'),
+            value: _destinationNot,
+            onChanged: (value) => setState(() => _destinationNot = value),
           ),
           const SizedBox(height: 8),
           SwitchListTile.adaptive(
