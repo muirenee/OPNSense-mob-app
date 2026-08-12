@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netsource_opn_manager/core/api/opnsense_api_client.dart';
+import 'package:netsource_opn_manager/features/profiles/firewall_profile.dart';
 
 void main() {
   test('normalizes firewall URL', () {
@@ -13,6 +15,16 @@ void main() {
       OpnSenseApiClient.normalizeBaseUrl('https://fw.example.test///'),
       'https://fw.example.test',
     );
+  });
+
+  test('base headers do not advertise JSON content for bodyless GETs', () {
+    final headers = OpnSenseApiClient.baseHeaders(
+      const FirewallCredentials(apiKey: 'key', apiSecret: 'secret'),
+    );
+
+    expect(headers[HttpHeaders.acceptHeader], 'application/json');
+    expect(headers.containsKey(HttpHeaders.authorizationHeader), isTrue);
+    expect(headers.containsKey(HttpHeaders.contentTypeHeader), isFalse);
   });
 
   test('serializes an empty POST as a real JSON object', () {
