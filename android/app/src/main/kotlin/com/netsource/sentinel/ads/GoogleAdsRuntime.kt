@@ -6,6 +6,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.work.WorkManager
 import com.google.android.gms.ads.AdListener
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
@@ -25,6 +26,7 @@ class GoogleAdsRuntime(
 
     private var initializing = false
     private var initialized = false
+    private var workManagerReady = false
     private var mobileAdsInitialized = false
     private var canRequestAds = false
     private var privacyOptionsRequired = false
@@ -40,43 +42,89 @@ class GoogleAdsRuntime(
             initializing = true
             lastError = null
 
+            // Real-device logs showed AndroidX Startup crashing the process while
+            // creating WorkManager's WorkDatabase before MainActivity. Startup
+            // initialization is disabled in the manifest. Force the same work
+            // database creation here, after Sentinel is visible, on a background
+            // thread and under Throwable protection. If it still fails, ads are
+            // simply unavailable for this session.
+            preflightWorkManager(callback)
+        }
+    }
+
+    private fun preflightWorkManager(callback: (Map<String, Any?>) -> Unit) {
+        Thread {
             try {
-                val params = ConsentRequestParameters.Builder().build()
-                consentInformation.requestConsentInfoUpdate(
-                    activity,
-                    params,
-                    {
-                        try {
-                            UserMessagingPlatform.loadAndShowConsentFormIfRequired(
-                                activity,
-                            ) { formError ->
-                                if (formError != null) {
-                                    lastError = formError.message
-                                }
-                                finishInitialization(callback)
+                WorkManager.getInstance(activity.applicationContext)
+                workManagerReady = true
+                activity.runOnUiThread {
+                    beginConsentInitialization(callback)
+                }
+            } catch (error: Throwable) {
+                activity.runOnUiThread {
+                    workManagerReady = false
+                    canRequestAds = false
+                    lastError = "Advertising disabled: ${error.safeAdsMessage()}"
+                    initialized = true
+                    initializing = false
+                    callback(state())
+                }
+            }
+        }.apply {
+            name = "SentinelAdsWorkManagerPreflight"
+            isDaemon = true
+        }.start()
+    }
+
+    private fun beginConsentInitialization(callback: (Map<String, Any?>) -> Unit) {
+        if (!workManagerReady) {
+            initialized = true
+            initializing = false
+            canRequestAds = false
+            callback(state())
+            return
+        }
+
+        try {
+            val params = ConsentRequestParameters.Builder().build()
+            consentInformation.requestConsentInfoUpdate(
+                activity,
+                params,
+                {
+                    try {
+                        UserMessagingPlatform.loadAndShowConsentFormIfRequired(
+                            activity,
+                        ) { formError ->
+                            if (formError != null) {
+                                lastError = formError.message
                             }
-                        } catch (error: Throwable) {
-                            lastError = error.safeAdsMessage()
                             finishInitialization(callback)
                         }
-                    },
-                    { requestError ->
-                        // UMP can still have usable consent from a previous app
-                        // session, so refresh canRequestAds even when the update
-                        // request itself fails.
-                        lastError = requestError.message
+                    } catch (error: Throwable) {
+                        lastError = error.safeAdsMessage()
                         finishInitialization(callback)
-                    },
-                )
-            } catch (error: Throwable) {
-                lastError = error.safeAdsMessage()
-                finishInitialization(callback)
-            }
+                    }
+                },
+                { requestError ->
+                    // UMP can still have usable consent from a previous app
+                    // session, so refresh canRequestAds even when the update
+                    // request itself fails.
+                    lastError = requestError.message
+                    finishInitialization(callback)
+                },
+            )
+        } catch (error: Throwable) {
+            lastError = error.safeAdsMessage()
+            finishInitialization(callback)
         }
     }
 
     override fun showPrivacyOptions(callback: (Map<String, Any?>) -> Unit) {
         activity.runOnUiThread {
+            if (!workManagerReady) {
+                callback(state())
+                return@runOnUiThread
+            }
             try {
                 UserMessagingPlatform.showPrivacyOptionsForm(activity) { formError ->
                     if (formError != null) {
@@ -110,7 +158,11 @@ class GoogleAdsRuntime(
             )
         }
 
-        if (!canRequestAds || !mobileAdsInitialized || adUnitId.isBlank()) {
+        if (!workManagerReady ||
+            !canRequestAds ||
+            !mobileAdsInitialized ||
+            adUnitId.isBlank()
+        ) {
             return container
         }
 
@@ -173,7 +225,7 @@ class GoogleAdsRuntime(
 
     private fun refreshConsentState() {
         try {
-            canRequestAds = consentInformation.canRequestAds()
+            canRequestAds = workManagerReady && consentInformation.canRequestAds()
             privacyOptionsRequired =
                 consentInformation.privacyOptionsRequirementStatus ==
                 ConsentInformation.PrivacyOptionsRequirementStatus.REQUIRED
@@ -187,7 +239,7 @@ class GoogleAdsRuntime(
     private fun initializeMobileAdsIfAllowed(
         callback: (Map<String, Any?>) -> Unit,
     ) {
-        if (!canRequestAds || mobileAdsInitialized) {
+        if (!workManagerReady || !canRequestAds || mobileAdsInitialized) {
             initialized = true
             initializing = false
             callback(state())
