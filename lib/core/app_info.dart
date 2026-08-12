@@ -2,8 +2,8 @@ class AppInfo {
   const AppInfo._();
 
   static const String name = 'Netsource Sentinel';
-  static const String version = '1.1.0';
-  static const int buildNumber = 110;
+  static const String version = '1.1.1';
+  static const int buildNumber = 111;
   static const String packageId = 'com.netsource.sentinel';
   static const String supportEmail = 'support@fidalix.com';
 
@@ -26,10 +26,10 @@ class AppInfo {
     defaultValue: true,
   );
 
-  /// Google's dedicated Android test banner unit. Production Play builds must
-  /// replace this with a Sentinel AdMob banner unit using --dart-define.
+  /// Google's dedicated Android fixed-size banner test unit. Production Play
+  /// builds must replace this with a Sentinel AdMob banner unit.
   static const String googleTestBannerAdUnitId =
-      'ca-app-pub-3940256099942544/9214589741';
+      'ca-app-pub-3940256099942544/6300978111';
 
   static const String adMobBannerAdUnitId = String.fromEnvironment(
     'SENTINEL_ADMOB_BANNER_ID',

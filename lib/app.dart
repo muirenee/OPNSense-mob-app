@@ -26,14 +26,6 @@ class _OpnManagerAppState extends State<OpnManagerApp> {
   ThemeMode _themeMode = ThemeMode.system;
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.adService.initialize();
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,

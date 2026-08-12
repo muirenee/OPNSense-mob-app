@@ -19,30 +19,28 @@ class AdService extends ChangeNotifier {
   bool get usingTestAds => AdConfig.usingTestAds;
   String? get lastError => _lastError;
 
+  /// Advertising must never be able to take the firewall manager down.
+  /// Any UMP/plugin/device failure disables ads for this app session and is
+  /// retained only as a diagnostic message for the privacy/settings screen.
   Future<void> initialize() async {
     if (_initialized || _initializing) return;
     _initializing = true;
     _lastError = null;
 
-    if (!AdConfig.enabled) {
-      _initialized = true;
-      _initializing = false;
-      notifyListeners();
-      return;
-    }
-
-    final update = Completer<FormError?>();
-    ConsentInformation.instance.requestConsentInfoUpdate(
-      ConsentRequestParameters(),
-      () {
-        if (!update.isCompleted) update.complete(null);
-      },
-      (FormError error) {
-        if (!update.isCompleted) update.complete(error);
-      },
-    );
-
     try {
+      if (!AdConfig.enabled) return;
+
+      final update = Completer<FormError?>();
+      ConsentInformation.instance.requestConsentInfoUpdate(
+        ConsentRequestParameters(),
+        () {
+          if (!update.isCompleted) update.complete(null);
+        },
+        (FormError error) {
+          if (!update.isCompleted) update.complete(error);
+        },
+      );
+
       final updateError = await update.future;
       if (updateError != null) {
         _lastError = updateError.message;
@@ -54,30 +52,38 @@ class AdService extends ChangeNotifier {
         final formError = await form.future;
         if (formError != null) _lastError = formError.message;
       }
+
+      await _refreshConsentState();
     } catch (error) {
       _lastError = error.toString();
+      _canRequestAds = false;
+    } finally {
+      _initialized = true;
+      _initializing = false;
+      notifyListeners();
     }
-
-    await _refreshConsentState();
-    _initialized = true;
-    _initializing = false;
-    notifyListeners();
   }
 
   Future<void> showPrivacyOptions() async {
     if (!_privacyOptionsRequired) return;
-    final form = Completer<FormError?>();
-    ConsentForm.showPrivacyOptionsForm((FormError? error) {
-      if (!form.isCompleted) form.complete(error);
-    });
-    final error = await form.future;
-    if (error != null) {
-      _lastError = error.message;
-    } else {
-      _lastError = null;
+    try {
+      final form = Completer<FormError?>();
+      ConsentForm.showPrivacyOptionsForm((FormError? error) {
+        if (!form.isCompleted) form.complete(error);
+      });
+      final error = await form.future;
+      if (error != null) {
+        _lastError = error.message;
+      } else {
+        _lastError = null;
+      }
+      await _refreshConsentState();
+    } catch (error) {
+      _lastError = error.toString();
+      _canRequestAds = false;
+    } finally {
+      notifyListeners();
     }
-    await _refreshConsentState();
-    notifyListeners();
   }
 
   Future<void> _refreshConsentState() async {
