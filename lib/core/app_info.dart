@@ -2,8 +2,8 @@ class AppInfo {
   const AppInfo._();
 
   static const String name = 'Netsource Sentinel';
-  static const String version = '1.1.1';
-  static const int buildNumber = 111;
+  static const String version = '1.1.2';
+  static const int buildNumber = 112;
   static const String packageId = 'com.netsource.sentinel';
   static const String supportEmail = 'support@fidalix.com';
 
@@ -19,25 +19,13 @@ class AppInfo {
     defaultValue: '',
   );
 
-  /// Free releases are ad-supported by default. Set this false only for a
-  /// distribution where advertising must be completely disabled.
-  static const bool adsEnabled = bool.fromEnvironment(
-    'SENTINEL_ADS_ENABLED',
-    defaultValue: true,
-  );
-
-  /// Google's dedicated Android fixed-size banner test unit. Production Play
-  /// builds must replace this with a Sentinel AdMob banner unit.
-  static const String googleTestBannerAdUnitId =
-      'ca-app-pub-3940256099942544/6300978111';
-
-  static const String adMobBannerAdUnitId = String.fromEnvironment(
-    'SENTINEL_ADMOB_BANNER_ID',
-    defaultValue: googleTestBannerAdUnitId,
-  );
-
-  static bool get usesTestAds =>
-      adMobBannerAdUnitId == googleTestBannerAdUnitId;
+  /// Recovery build: advertising is disabled at binary level while the startup
+  /// crash introduced by the first ad-supported release is isolated. The Free
+  /// entitlement remains limited to one firewall and the ad architecture stays
+  /// available for a later safe reintroduction.
+  static const bool adsEnabled = false;
+  static const String adMobBannerAdUnitId = '';
+  static const bool usesTestAds = false;
 
   /// Keep commercial activation dormant in the public Free release. The
   /// licensing architecture remains in place so Play Billing or the Sentinel

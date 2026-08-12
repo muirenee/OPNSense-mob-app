@@ -1,28 +1,10 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
 
     <application
         android:label="Netsource Sentinel"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        <meta-data
-            android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="${admobAppId}" />
-
-        <!--
-          The Google Mobile Ads library normally installs a ContentProvider that
-          initializes parts of the ads SDK before Flutter and MainActivity are
-          ready. Sentinel removes that eager provider and performs explicit,
-          consent-aware initialization from Dart after the real firewall shell
-          is running. This keeps an ads/Play-services failure from becoming an
-          application startup failure.
-        -->
-        <provider
-            android:name="com.google.android.gms.ads.MobileAdsInitProvider"
-            tools:node="remove" />
-
         <activity
             android:name=".MainActivity"
             android:exported="true"
