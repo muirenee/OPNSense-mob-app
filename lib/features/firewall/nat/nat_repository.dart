@@ -54,7 +54,7 @@ class NatRepository {
     required Map<String, dynamic> values,
   }) async {
     final controller = _controller(kind);
-    return _changeSafelyController(
+    return _changeAndApply(
       controller: controller,
       change: () => api.postData(
         uuid == null || uuid.isEmpty
@@ -72,7 +72,7 @@ class NatRepository {
     final toggleValue = rule.kind == NatRuleKind.portForward
         ? (enabled ? 0 : 1)
         : (enabled ? 1 : 0);
-    return _changeSafelyController(
+    return _changeAndApply(
       controller: controller,
       change: () => api.postData(
         '/api/firewall/$controller/toggle_rule/${Uri.encodeComponent(rule.uuid)}/$toggleValue',
@@ -82,7 +82,7 @@ class NatRepository {
 
   Future<String> deleteSafely(NatRuleSummary rule) async {
     final controller = _controller(rule.kind);
-    return _changeSafelyController(
+    return _changeAndApply(
       controller: controller,
       change: () => api.postData(
         '/api/firewall/$controller/del_rule/${Uri.encodeComponent(rule.uuid)}',
@@ -90,33 +90,24 @@ class NatRepository {
     );
   }
 
-  Future<String> _changeSafelyController({
+  /// Destination NAT and Source NAT both inherit Firewall's FilterBaseController
+  /// in OPNsense 26.7. A successful mutation is persisted by add/set/toggle/del
+  /// and must then be activated with POST /apply. There is no firewall
+  /// savepoint/cancel_rollback transaction API on these controllers.
+  Future<String> _changeAndApply({
     required String controller,
     required Future<dynamic> Function() change,
   }) async {
-    final savepoint = await api.postJson('/api/firewall/$controller/savepoint');
-    final revision = _first(savepoint, const ['revision', 'timestamp', 'id']);
-    if (revision.isEmpty) {
-      throw StateError('The firewall did not return a rollback revision.');
-    }
-
     final changed = await change();
     _ensureMutationSuccess(changed, 'NAT change');
-    final applied = await api.postData(
-      '/api/firewall/$controller/apply/${Uri.encodeComponent(revision)}',
-    );
+
+    final applied = await api.postData('/api/firewall/$controller/apply');
     _ensureMutationSuccess(applied, 'Apply NAT change');
 
-    await api.getData(
-      '/api/firewall/$controller/search_rule',
-      queryParameters: const {'current': 1, 'rowCount': 1},
-    );
-
-    final cancelled = await api.postData(
-      '/api/firewall/$controller/cancel_rollback/${Uri.encodeComponent(revision)}',
-    );
-    _ensureMutationSuccess(cancelled, 'Cancel NAT rollback');
-    return revision;
+    final uuid = changed is Map
+        ? _first(Map<String, dynamic>.from(changed), const ['uuid'])
+        : '';
+    return uuid.isEmpty ? 'applied' : uuid;
   }
 
   static List<ApiChoice> choices(Map<String, dynamic> model, String field) =>
@@ -260,20 +251,32 @@ class NatRepository {
   }
 
   static void _ensureMutationSuccess(dynamic raw, String operation) {
-    if (raw is! Map) return;
-    final map = Map<String, dynamic>.from(raw);
+    final normalized = OpnSenseApiClient.normalizeResponseData(raw);
+    if (normalized is! Map) return;
+    final map = Map<String, dynamic>.from(normalized);
     final result = map['result']?.toString().trim().toLowerCase();
     final status = map['status']?.toString().trim().toLowerCase();
     if (result == 'failed' || status == 'failed' || status == 'error') {
       final validations = map['validations'] ?? map['validation'];
-      final detail = validations is Map
-          ? validations.values
-              .map((value) => value.toString().trim())
-              .where((value) => value.isNotEmpty)
-              .join(' · ')
-          : (map['message'] ?? map['error'] ?? '').toString().trim();
+      final details = <String>[];
+      if (validations is Map) {
+        for (final entry in validations.entries) {
+          final value = entry.value;
+          if (value is List) {
+            details.addAll(value.map((item) => item.toString().trim()));
+          } else if (value != null) {
+            details.add(value.toString().trim());
+          }
+        }
+      }
+      final fallback = (map['message'] ?? map['error'] ?? '').toString().trim();
+      final detail = details.where((value) => value.isNotEmpty).join(' · ');
       throw StateError(
-        detail.isEmpty ? '$operation failed.' : '$operation failed: $detail',
+        detail.isNotEmpty
+            ? '$operation failed: $detail'
+            : fallback.isNotEmpty
+                ? '$operation failed: $fallback'
+                : '$operation failed.',
       );
     }
   }
