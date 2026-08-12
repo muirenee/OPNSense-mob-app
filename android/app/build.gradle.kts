@@ -20,8 +20,8 @@ if (hasReleaseSigning) {
 }
 
 android {
-    namespace = "com.netsource.netsource_opn_manager"
-    compileSdk = flutter.compileSdkVersion
+    namespace = "com.netsource.sentinel"
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -30,9 +30,9 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.netsource.netsource_opn_manager"
+        applicationId = "com.netsource.sentinel"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }

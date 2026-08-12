@@ -1,4 +1,4 @@
-name: Android APK
+name: Android Release
 
 on:
   push:
@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -39,6 +39,18 @@ jobs:
 
       - name: Flutter version
         run: flutter --version
+
+      - name: Install Android API 36
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Resolve dependencies
         run: flutter pub get
@@ -103,7 +115,7 @@ jobs:
             echo "Permanent release signing secrets are required for main/manual builds." >&2
             exit 1
           else
-            echo "PR CI: signing secrets are unavailable, so this validation build may use the runner debug key."
+            echo "PR CI: signing secrets are unavailable, so validation artifacts may use the runner debug key."
           fi
 
       - name: Build release APK
@@ -111,13 +123,23 @@ jobs:
           SENTINEL_REQUIRE_RELEASE_SIGNING: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
         run: flutter build apk --release
 
-      - name: Verify APK and signing certificate
+      - name: Build Play App Bundle
+        env:
+          SENTINEL_REQUIRE_RELEASE_SIGNING: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
+        run: flutter build appbundle --release
+
+      - name: Verify APK, AAB and signing certificate
         shell: bash
         run: |
           set -euo pipefail
           APK=build/app/outputs/flutter-apk/app-release.apk
+          AAB=build/app/outputs/bundle/release/app-release.aab
           test -s "$APK"
-          sha256sum "$APK"
+          test -s "$AAB"
+          sha256sum "$APK" "$AAB"
+          jarsigner -verify "$AAB" >/dev/null
+          echo "Android App Bundle JAR signature verified."
+
           if [ -n "${KEYSTORE_B64:-}" ]; then
             BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
             CERT_OUTPUT=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK")
@@ -136,10 +158,12 @@ jobs:
             echo "Permanent Netsource Sentinel v3 release certificate verified."
           fi
 
-      - name: Upload APK
+      - name: Upload Android release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: netsource-sentinel-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: netsource-sentinel-android
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 30

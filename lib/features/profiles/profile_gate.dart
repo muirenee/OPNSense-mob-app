@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../core/api/opnsense_api_client.dart';
+import '../../core/licensing/license_repository.dart';
 import '../../core/storage/profile_repository.dart';
 import '../shell/main_shell.dart';
 import 'firewall_profile.dart';
@@ -10,11 +10,13 @@ class ProfileGate extends StatefulWidget {
   const ProfileGate({
     super.key,
     required this.repository,
+    required this.licenseRepository,
     required this.themeMode,
     required this.onThemeModeChanged,
   });
 
   final ProfileRepository repository;
+  final LicenseRepository licenseRepository;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
 
@@ -41,7 +43,10 @@ class _ProfileGateState extends State<ProfileGate> {
   Widget build(BuildContext context) {
     final selected = widget.repository.selectedProfile;
     if (selected == null) {
-      return ProfileSetupScreen(repository: widget.repository);
+      return ProfileSetupScreen(
+        repository: widget.repository,
+        licenseRepository: widget.licenseRepository,
+      );
     }
 
     return FutureBuilder<FirewallCredentials?>(
@@ -54,11 +59,13 @@ class _ProfileGateState extends State<ProfileGate> {
         if (credentials == null) {
           return ProfileSetupScreen(
             repository: widget.repository,
+            licenseRepository: widget.licenseRepository,
             initialProfile: selected,
           );
         }
         return MainShell(
           repository: widget.repository,
+          licenseRepository: widget.licenseRepository,
           profile: selected,
           credentials: credentials,
           themeMode: widget.themeMode,
