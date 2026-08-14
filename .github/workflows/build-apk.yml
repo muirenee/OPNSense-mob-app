@@ -23,8 +23,8 @@ jobs:
       KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      SENTINEL_ADMOB_APP_ID: ${{ secrets.SENTINEL_ADMOB_APP_ID }}
-      SENTINEL_ADMOB_BANNER_ID: ${{ secrets.SENTINEL_ADMOB_BANNER_ID }}
+      SENTINEL_ADMOB_APP_ID: ${{ github.event_name == 'pull_request' && 'ca-app-pub-3940256099942544~3347511713' || (secrets.SENTINEL_ADMOB_APP_ID || 'ca-app-pub-8010023695580189~8678515451') }}
+      SENTINEL_ADMOB_BANNER_ID: ${{ github.event_name == 'pull_request' && 'ca-app-pub-3940256099942544/6300978111' || (secrets.SENTINEL_ADMOB_BANNER_ID || 'ca-app-pub-8010023695580189/3578086223') }}
       EXPECTED_KEY_ALIAS: netsource-sentinel
       EXPECTED_KEYSTORE_SHA256: 2c190e6d58bb4d43678100cf14ca2dd51c08202e7b30b869e370ef075020b804
       EXPECTED_RELEASE_CERT_SHA256: 8f6a384f612aa0d480dce388737dcf7441fc4619581b20bdb226e52ca4316e0d
@@ -66,10 +66,10 @@ jobs:
       - name: Report AdMob build mode
         shell: bash
         run: |
-          if [ -n "${SENTINEL_ADMOB_APP_ID:-}" ] && [ -n "${SENTINEL_ADMOB_BANNER_ID:-}" ]; then
-            echo "AdMob production identifiers are configured for this build."
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "PR validation build: Google test AdMob identifiers are configured."
           else
-            echo "AdMob production identifiers are not configured; Google test identifiers will be used."
+            echo "Release build: Netsource Sentinel production AdMob identifiers are configured."
           fi
 
       - name: Prepare permanent release signing
