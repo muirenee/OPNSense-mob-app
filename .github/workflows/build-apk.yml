@@ -25,6 +25,7 @@ jobs:
       KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       SENTINEL_ADMOB_APP_ID: ${{ github.event_name == 'pull_request' && 'ca-app-pub-3940256099942544~3347511713' || (secrets.SENTINEL_ADMOB_APP_ID || 'ca-app-pub-8010023695580189~8678515451') }}
       SENTINEL_ADMOB_BANNER_ID: ${{ github.event_name == 'pull_request' && 'ca-app-pub-3940256099942544/6300978111' || (secrets.SENTINEL_ADMOB_BANNER_ID || 'ca-app-pub-8010023695580189/3578086223') }}
+      SENTINEL_PRIVACY_POLICY_URL: https://netsource.co.rw/netsource-sentinel-privacy
       EXPECTED_KEY_ALIAS: netsource-sentinel
       EXPECTED_KEYSTORE_SHA256: 2c190e6d58bb4d43678100cf14ca2dd51c08202e7b30b869e370ef075020b804
       EXPECTED_RELEASE_CERT_SHA256: 8f6a384f612aa0d480dce388737dcf7441fc4619581b20bdb226e52ca4316e0d
@@ -71,6 +72,7 @@ jobs:
           else
             echo "Release build: Netsource Sentinel production AdMob identifiers are configured."
           fi
+          echo "Privacy policy URL: ${SENTINEL_PRIVACY_POLICY_URL}"
 
       - name: Prepare permanent release signing
         shell: bash
@@ -139,6 +141,9 @@ jobs:
           if [ -n "${SENTINEL_ADMOB_BANNER_ID:-}" ]; then
             args+=("--dart-define=SENTINEL_ADMOB_BANNER_ID=${SENTINEL_ADMOB_BANNER_ID}")
           fi
+          if [ -n "${SENTINEL_PRIVACY_POLICY_URL:-}" ]; then
+            args+=("--dart-define=SENTINEL_PRIVACY_POLICY_URL=${SENTINEL_PRIVACY_POLICY_URL}")
+          fi
           flutter build apk --release "${args[@]}"
 
       - name: Build Play App Bundle
@@ -150,6 +155,9 @@ jobs:
           args=()
           if [ -n "${SENTINEL_ADMOB_BANNER_ID:-}" ]; then
             args+=("--dart-define=SENTINEL_ADMOB_BANNER_ID=${SENTINEL_ADMOB_BANNER_ID}")
+          fi
+          if [ -n "${SENTINEL_PRIVACY_POLICY_URL:-}" ]; then
+            args+=("--dart-define=SENTINEL_PRIVACY_POLICY_URL=${SENTINEL_PRIVACY_POLICY_URL}")
           fi
           flutter build appbundle --release "${args[@]}"
 
