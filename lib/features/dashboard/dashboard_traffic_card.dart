@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -23,7 +24,8 @@ class DashboardTrafficCard extends StatefulWidget {
   State<DashboardTrafficCard> createState() => _DashboardTrafficCardState();
 }
 
-class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
+class _DashboardTrafficCardState extends State<DashboardTrafficCard>
+    with WidgetsBindingObserver {
   late NetworkRepository _repository;
   Timer? _timer;
   DateTime? _previousAt;
@@ -37,9 +39,9 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _buildRepository();
-    _poll();
-    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _poll());
+    _startPolling();
   }
 
   @override
@@ -56,6 +58,15 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startPolling();
+    } else {
+      _stopPolling();
+    }
+  }
+
   void _buildRepository() {
     _repository = NetworkRepository(
       OpnSenseApiClient(
@@ -65,9 +76,21 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
     );
   }
 
+  void _startPolling() {
+    _timer?.cancel();
+    _poll();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _poll());
+  }
+
+  void _stopPolling() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
   @override
   void dispose() {
-    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopPolling();
     super.dispose();
   }
 
@@ -75,6 +98,11 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
     if (_polling) return;
     _polling = true;
     try {
+      if (widget.profile.isDemo) {
+        _pollDemoTraffic();
+        return;
+      }
+
       final counters = await _repository.loadInterfaceCounters();
       final now = DateTime.now();
       final previous = _previous;
@@ -109,8 +137,7 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
         _selectedInterface = selected;
         _lastError = null;
         if (rate != null) {
-          _history.add(_TrafficPoint(rate.down, rate.up));
-          if (_history.length > 30) _history.removeAt(0);
+          _addHistory(rate);
         }
       });
     } catch (error) {
@@ -118,6 +145,50 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
     } finally {
       _polling = false;
     }
+  }
+
+  void _pollDemoTraffic() {
+    if (!mounted) return;
+
+    final now = DateTime.now();
+    final seconds = now.millisecondsSinceEpoch / 1000.0;
+
+    // Keep Demo Mode visually alive without contacting any external service.
+    // Values are representative current WAN usage, not a line-speed test.
+    final down = math.max(
+      0.0,
+      9500000 +
+          (4200000 * math.sin(seconds / 4.1)) +
+          (1800000 * math.sin(seconds / 1.9 + 0.8)),
+    );
+    final up = math.max(
+      0.0,
+      1800000 +
+          (720000 * math.sin(seconds / 5.3 + 1.2)) +
+          (310000 * math.sin(seconds / 2.4)),
+    );
+    final rate = _TrafficRate(down: down, up: up);
+
+    setState(() {
+      _previous = const {
+        'wan': {
+          'rxBytes': 0,
+          'txBytes': 0,
+          'rxPackets': 0,
+          'txPackets': 0,
+        },
+      };
+      _previousAt = now;
+      _rates = {'wan': rate};
+      _selectedInterface = 'wan';
+      _lastError = null;
+      _addHistory(rate);
+    });
+  }
+
+  void _addHistory(_TrafficRate rate) {
+    _history.add(_TrafficPoint(rate.down, rate.up));
+    if (_history.length > 30) _history.removeAt(0);
   }
 
   String? _defaultInterface(Iterable<String> keys) {
@@ -153,7 +224,7 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
       _selectedInterface = value;
       _history.clear();
       final rate = _rates[value];
-      if (rate != null) _history.add(_TrafficPoint(rate.down, rate.up));
+      if (rate != null) _addHistory(rate);
     });
   }
 
@@ -169,6 +240,7 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
     final selected = _selectedInterface;
     final current = selected == null ? null : _rates[selected];
     final choices = _previous?.keys.toList() ?? const <String>[];
+    final selectedLabel = selected == null ? 'WAN' : _label(selected);
 
     return Card(
       child: Padding(
@@ -189,7 +261,7 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
                     borderRadius: BorderRadius.circular(11),
                   ),
                   child: Icon(
-                    Icons.show_chart,
+                    Icons.monitor_heart_outlined,
                     size: 20,
                     color: Theme.of(context).colorScheme.primary,
                   ),
@@ -200,23 +272,22 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Traffic',
+                        'Live Internet Traffic',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               fontWeight: FontWeight.w800,
                             ),
                       ),
                       Text(
-                        'Live throughput · last 60 seconds',
+                        '$selectedLabel throughput · last 60 seconds',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
                   ),
                 ),
-                if (choices.length == 1)
-                  Text(
-                    _label(choices.first),
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
+                const SizedBox(width: 8),
+                _LiveBadge(active: _lastError == null),
               ],
             ),
             if (choices.length > 1) ...[
@@ -225,7 +296,7 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
                 initialValue: selected,
                 isExpanded: true,
                 decoration: const InputDecoration(
-                  labelText: 'Interface',
+                  labelText: 'Internet interface',
                   isDense: true,
                 ),
                 items: choices
@@ -289,22 +360,74 @@ class _DashboardTrafficCardState extends State<DashboardTrafficCard> {
                     ),
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 16,
-              runSpacing: 4,
+            Row(
               children: [
-                _LegendDot(
-                  label: 'Download',
-                  color: Theme.of(context).colorScheme.primary,
+                Expanded(
+                  child: Wrap(
+                    spacing: 16,
+                    runSpacing: 4,
+                    children: [
+                      _LegendDot(
+                        label: 'Download',
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      _LegendDot(
+                        label: 'Upload',
+                        color: Theme.of(context).colorScheme.tertiary,
+                      ),
+                    ],
+                  ),
                 ),
-                _LegendDot(
-                  label: 'Upload',
-                  color: Theme.of(context).colorScheme.tertiary,
+                Text(
+                  'Current usage',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                 ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LiveBadge extends StatelessWidget {
+  const _LiveBadge({required this.active});
+
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active
+        ? Colors.green
+        : Theme.of(context).colorScheme.error;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .10),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            active ? 'LIVE' : 'OFFLINE',
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: .35,
+            ),
+          ),
+        ],
       ),
     );
   }
