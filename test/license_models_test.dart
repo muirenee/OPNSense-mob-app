@@ -20,8 +20,8 @@ void main() {
       'features': ['diagnostics', 'multi-firewall'],
       'license_id': 'lic_123',
       'lease_token': 'opaque-lease',
-      'expires_at': '2027-08-12T00:00:00Z',
-      'offline_until': '2026-08-19T00:00:00Z',
+      'expires_at': '2099-08-12T00:00:00Z',
+      'offline_until': '2099-08-19T00:00:00Z',
     });
     expect(entitlement.plan, LicensePlan.professional);
     expect(entitlement.maxFirewalls, 5);
